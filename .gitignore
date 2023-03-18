@@ -1,0 +1,5 @@
+backend_build/
+node_modules/
+pyright-1.1.298/
+python-type-stubs-main/
+*-checkpoint.ipynb
