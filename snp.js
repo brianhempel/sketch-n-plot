@@ -75,14 +75,19 @@ function deselect_all(snp_state) {
     selected.setAttribute("stroke-width", selected.dataset.oldStrokeWidth)
     snp_state.selected_shape = undefined
   }
+  const code_mirror_popup = snp_state.code_mirror_popup;
+  if (code_mirror_popup) {
+    code_mirror_popup.getWrapperElement().remove(); // delete editor "Remove getWrapperElement() from your tree to delete an editor instance"
+    snp_state.code_mirror_popup = undefined
+  }
 }
 
 function relativeTopLeft(el, container) {
   const {top,        left,      } = el.getBoundingClientRect();
   const {top: top0,  left: left0} = container.getBoundingClientRect();
 
-  console.log(el.getBoundingClientRect());
-  console.log(container.getBoundingClientRect());
+  // console.log(el.getBoundingClientRect());
+  // console.log(container.getBoundingClientRect());
 
   return [
     top - top0,
@@ -97,10 +102,12 @@ function attach_snp(img) {
   let snp_outer = img.closest(".snp_outer");
   let cell_el = snp_outer.closest(".code_cell");
   let cell = Jupyter.notebook.get_cells().filter(cell => cell.element[0] === cell_el)[0];
-  console.log("hi")
-  console.log(snp_outer);
-  console.log(cell_el);
-  console.log(cell);
+  let svg_hover_regions = snp_outer.querySelector("svg")
+  let busy = false;
+  // console.log("reattaching")
+  // console.log(snp_outer);
+  // console.log(cell_el);
+  // console.log(cell);
   let hovered_elems = [];
 
   const inspector = document.createElement("div");
@@ -108,32 +115,31 @@ function attach_snp(img) {
     hovered_elems: [],
     selected_shape: undefined,
     inspector: inspector,
+    code_mirror_popup: undefined
   }
   snp_outer.snp_state = snp_state
 
   snp_outer.querySelectorAll('[data-artist]').forEach(el => {
     let title = el.dataset.artist + el.dataset.names
-    el.addEventListener("mouseenter", ev => {
-      el.classList.add("hovered")
-      hovered_elems.addAsSet(title)
-      console.log("mouseenter")
-      console.log(hovered_elems)
-    });
-    el.addEventListener("mouseleave", ev => {
-      hovered_elems.removeAsSet(title)
-      el.classList.remove("hovered")
-      console.log("mouseleave")
-      console.log(hovered_elems)
-    });
+    // el.addEventListener("mouseenter", ev => {
+    //   el.classList.add("hovered")
+    //   hovered_elems.addAsSet(title)
+    //   console.log("mouseenter")
+    //   console.log(hovered_elems)
+    // });
+    // el.addEventListener("mouseleave", ev => {
+    //   hovered_elems.removeAsSet(title)
+    //   el.classList.remove("hovered")
+    //   console.log("mouseleave")
+    //   console.log(hovered_elems)
+    // });
     el.addEventListener("click", ev => {
-      console.log("click");
       const first_shape = el.querySelector("[stroke-width]")
       if (snp_state.selected_shape == first_shape) {
         deselect_all(snp_state);
       } else {
         deselect_all(snp_state);
         select(snp_state, first_shape);
-        // START HERE: pop open a code box that edits the data-loc code
         const [top, left] = relativeTopLeft(first_shape, snp_outer);
         inspector.style = `
           position: absolute;
@@ -144,6 +150,7 @@ function attach_snp(img) {
         `.replace(/\n\s*/g, " ")
         inspector.innerHTML = "";
         snp_outer.appendChild(inspector);
+        // console.log(el.dataset);
         if (el.dataset.loc) {
           const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(el.dataset.loc);
           const [from, to] = [ // CodeMirror locs
@@ -154,35 +161,50 @@ function attach_snp(img) {
           // editor.innerText = code_mirror.getRange(from, to);
           // const markedCodeChunk = code_mirror.markText(from, to, {css: "border: solid red 1px"});
           const linked = code_mirror.linkedDoc({from: from.line, to: to.line+1});
-          console.log(linked);
-          const chunkCM = CodeMirror(inspector);
-          chunkCM.swapDoc(linked);
+          // console.log(linked);
+          const code_mirror_popup = CodeMirror(inspector);
+          code_mirror_popup.swapDoc(linked);
+          snp_state.code_mirror_popup = code_mirror_popup;
           linked.setSelection(from, to);
-          chunkCM.focus();
-          // console.log(chunkCM);
+          code_mirror_popup.focus();
+          // console.log(code_mirror_popup);
 
           inspector.addEventListener("keydown", ev => {
             if (ev.ctrlKey && ev.code === "Enter") {
+              deselect_all(snp_state);
+              busy = false;
               cell.execute();
             } else {
-              let busy = false;
               function redraw() {
                 const codeExecuting = cell.get_text();
                 if (busy) { return; }
                 busy = true;
                 // Hacktastic way to get live feedback
                 const callbacks = cell.get_callbacks();
+                // console.log(cell.get_callbacks())
                 callbacks.iopub.output = function(msg) {
                   if (msg.header.msg_type === "execute_result" && msg.content.data["image/png"]) {
                     // cell.clear_output();
-                    img.src = "data:image/png;base64," + msg.content.data["image/png"];
-                    busy = false;
-                    if (codeExecuting !== cell.get_text()) { redraw(); }
+                    // The hover regions:
+
+                    // console.log(msg.content.data["image/svg+xml"])
+                    let temp_el = document.createElement("div")
+                    temp_el.innerHTML = msg.content.data["image/svg+xml"]
+                    svg_hover_regions.remove()
+                    svg_hover_regions = temp_el.children[0]
+                    snp_outer.appendChild(svg_hover_regions)
+                    img.src = "data:image/png;base64," + msg.content.data["image/png"]; // This also triggers img.onload which calls attach_snp and reattaches all of our events!
                   } else {
                     // console.log(arguments);
                     // cell.output_area.handle_output.apply(cell.output_area, [msg]);
-                    busy = false;
+                    if (msg.header.msg_type === "error") {
+                      console.log(msg.content.evalue)
+                    } else {
+                      console.log(arguments)
+                    }
                   }
+                  busy = false;
+                  if (codeExecuting !== cell.get_text()) { redraw(); }
                 };
                 cell.kernel.execute(codeExecuting, callbacks, {silent: false, store_history: true, stop_on_error: true});
               }
