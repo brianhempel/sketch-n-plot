@@ -39,6 +39,18 @@ Array.prototype.dedup = function() {
   return this.filter((item, pos) => this.indexOf(item) == pos );
 }
 
+Array.prototype.takeWhile = function(pred) {
+  const out = [];
+  for (const x of this) {
+    if (pred(x)) {
+      out.push(x);
+    } else {
+      return out;
+    }
+  }
+  return out;
+}
+
 // Prefers first match in case of ties.
 // String.prototype.indexOfMatchClosestToIndex = function(targetStr, idealI) {
 //   let closestI = -1;
