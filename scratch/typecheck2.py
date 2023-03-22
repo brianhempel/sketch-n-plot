@@ -22,6 +22,7 @@ class MyVisitor(TraverserVisitor):
     def visit_call_expr(self, node: mypy.nodes.CallExpr):
         super().visit_call_expr(node)
         print(node)
+        print((node.line, node.column, node.end_line, node.end_column))
         # print(node.analyzed)
         print(self.types_dict.get(node))
         # if node.analyzed is not None:
@@ -30,6 +31,7 @@ class MyVisitor(TraverserVisitor):
     def visit_member_expr(self, node: mypy.nodes.MemberExpr) -> None:
         super().visit_member_expr(node)
         print(node)
+        print((node.line, node.column, node.end_line, node.end_column))
         print(self.types_dict.get(node))
         # if node.def_var is not None:
         #   print(node.def_var.type)
@@ -37,6 +39,7 @@ class MyVisitor(TraverserVisitor):
     def visit_name_expr(self, node: mypy.nodes.NameExpr) -> None:
         super().visit_name_expr(node)
         print(node)
+        print((node.line, node.column, node.end_line, node.end_column))
         print(self.types_dict.get(node))
         # if node.node is not None:
         #   print(node.node.type)
