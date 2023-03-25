@@ -39,17 +39,17 @@ Array.prototype.dedup = function() {
   return this.filter((item, pos) => this.indexOf(item) == pos );
 }
 
-Array.prototype.takeWhile = function(pred) {
-  const out = [];
-  for (const x of this) {
-    if (pred(x)) {
-      out.push(x);
-    } else {
-      return out;
-    }
-  }
-  return out;
-}
+// Array.prototype.takeWhile = function(predicate) {
+//   const out = [];
+//   for (const x of this) {
+//     if (predicate(x)) {
+//       out.push(x);
+//     } else {
+//       return out;
+//     }
+//   }
+//   return out;
+// }
 
 // Prefers first match in case of ties.
 // String.prototype.indexOfMatchClosestToIndex = function(targetStr, idealI) {
@@ -106,6 +106,103 @@ function relativeTopLeft(el, container) {
     left - left0
   ]
 }
+
+
+function get_cells_up_through(cell) {
+  const cells = Jupyter.notebook.get_cells();
+  const i = cells.indexOf(cell);
+  return cells.slice(0, i+1);
+}
+
+// 1. gather all the code cells togther into one long code string, with comments delimiting the cells, e.g.:
+//
+// ### Cell 0 ###
+// import numpy as np
+// import matplotlib as mpl
+// import matplotlib.pyplot as plt
+// ### Cell 1 ###
+// fig, ax = plt.subplots()
+// text = ax.set_title("My Plot", pad=10)
+// plt.show(fig)
+//
+// 2. Set `notebook_code_up_through_current_cell` variable in the kernel
+// 3. Typecheck it in the kernel
+//
+
+function infer_types_up_through(cell) {
+  let code_cells = Jupyter.notebook.get_cells().filter(cell => cell.cell_type === "code");
+
+  // limit to cells up through the given cell
+  code_cells_before_cell = code_cells.slice(0, code_cells.indexOf(cell));
+  // code_cells             = code_cells.slice(0, code_cells.indexOf(cell)+1);
+
+  function is_not_magic(code) {
+    return !code.startsWith("%%");
+  }
+
+  let notebook_code_before_cell =
+    code_cells_before_cell.
+        // takeWhile(cell => cell.input_prompt_number !== "*").
+        map(cell => cell.get_text()).
+        filter(is_not_magic).
+        // map((code, i) => `### Cell ${i} ###\n${code}`).
+        join("\n");
+
+  let notebook_code_through_cell = `${notebook_code_before_cell}\n${cell.get_text()}`;
+
+  // console.log(notebook_code_through_cell);
+
+  cell_lineno = notebook_code_before_cell.split("\n").length + 1
+
+  console.log({cell_lineno: cell_lineno})
+
+  // console.log(cells);
+  // console.log(cells.map(cell => cell.input_prompt_number));
+  // console.log(notebook_code_up_through_current_cell)
+  const callbacks = cell.get_callbacks();
+  const just_log  = { shell: { reply: console.log }, iopub: { output: console.log }};
+  old_callback = callbacks.shell.reply;
+  callbacks.shell.reply = (msg) => {
+    if (msg.msg_type == "execute_reply" && msg.content.status == "ok" &&msg.content.user_expressions.inferred.status == "ok") {
+      console.log(msg.content.user_expressions.inferred)
+      const items = msg.content.user_expressions.inferred.data["application/json"];
+      const cell_items = items.filter(item => item.loc.line >= cell_lineno);
+      console.log(cell_items);
+
+      // START HERE
+      // start widgetizing the call
+
+      // decoding enum for the "arg_kind" numeric property
+      const arg_kinds = [
+        "ARG_POS",       // Positional argument
+        "ARG_OPT",       // Positional, optional argument (functions only, not calls)
+        "ARG_STAR",      // *arg argument
+        "ARG_NAMED",     // Keyword argument x=y in call, or keyword-only function arg
+        "ARG_STAR2",     // **arg argument
+        "ARG_NAMED_OPT", // In an argument list, keyword-only and also optional
+      ]
+
+
+
+    } else {
+      console.error(msg);
+      old_callback(msg);
+    }
+  };
+  IPython.notebook.kernel.execute(`
+  notebook_code_through_cell = ${JSON.stringify(notebook_code_through_cell)}
+execfile("type_inference.py")
+import json
+class JsonDict():
+    def __init__(self, dict):
+        self.dict = dict
+
+    def _repr_json_(self):
+       return self.dict
+`,  callbacks, { silent: false, user_expressions: { "inferred": "JsonDict(do_inference(notebook_code_through_cell))" } });
+
+}
+
 
 // <div class="snp_outer">
 // <img src='{}' onload="attach_snp(this)">
@@ -180,6 +277,8 @@ function attach_snp(img) {
           linked.setSelection(from, to);
           code_mirror_popup.focus();
           // console.log(code_mirror_popup);
+
+          // infer_types_up_through(cell);
 
           inspector.addEventListener("keydown", ev => {
             if (ev.ctrlKey && ev.code === "Enter") {
