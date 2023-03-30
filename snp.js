@@ -52,6 +52,11 @@ Array.prototype.partition = function(predicate) {
   return [trues, falses]
 }
 
+// [1,2,3].intersperse("&") => [1, '&', 2, '&', 3]
+Array.prototype.intersperse = function(sep) {
+  return this.flatMap((el, i) => i == 0 ? [el] : [sep, el]);
+}
+
 // Array.prototype.takeWhile = function(predicate) {
 //   const out = [];
 //   for (const x of this) {
@@ -161,9 +166,7 @@ function default_code_for_type(type) {
 ellipses_svg_html =
   `<svg style="vertical-align: middle" x="0pt" y="0pt" width="14pt" height="14pt" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
     <g id="1">
-    <title>Layer 1</title>
     <defs>
-      <title>Smart Rectangle1</title>
       <g id="2">
         <defs>
           <path id="3" d="M14,8 C14,9.65685,12.6569,11,11,11 C11,11,3,11,3,11 C1.34315,11,6.45542e-07,9.65685,4.07123e-07,8 C8.8396e-07,6.34315,1.34315,5,3,5 C3,5,11,5,11,5 C12.6569,5,14,6.34315,14,8 z"/>
@@ -173,7 +176,6 @@ ellipses_svg_html =
     </defs>
     <use xlink:href="#2"/>
     <defs>
-      <title>Path</title>
       <g id="4">
         <defs>
           <path id="5" d="M3,7 C3.55229,7,4,7.44772,4,8 C4,8.55228,3.55229,9,3,9 C2.44772,9,2,8.55228,2,8 C2,7.44772,2.44772,7,3,7 z"/>
@@ -183,7 +185,6 @@ ellipses_svg_html =
     </defs>
     <use xlink:href="#4"/>
     <defs>
-      <title>Path Copy</title>
       <g id="6">
         <defs>
           <path id="7" d="M7,7 C7.55229,7,8,7.44772,8,8 C8,8.55228,7.55229,9,7,9 C6.44772,9,6,8.55228,6,8 C6,7.44772,6.44772,7,7,7 z"/>
@@ -193,7 +194,6 @@ ellipses_svg_html =
     </defs>
     <use xlink:href="#6"/>
     <defs>
-      <title>Path Copy 1</title>
       <g id="8">
         <defs>
           <path id="9" d="M11,7 C11.5523,7,12,7.44772,12,8 C12,8.55228,11.5523,9,11,9 C10.4477,9,10,8.55228,10,8 C10,7.44772,10.4477,7,11,7 z"/>
@@ -207,11 +207,23 @@ ellipses_svg_html =
 
 
 // https://stackoverflow.com/a/6234804
-function escapeHtml(str) {
-  return str.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+// function escapeHtml(str) {
+//   return str.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+// }
+
+// Walk the widget tree and convert to code
+// If node has a to_code property, call it. Otherwise use the text of text nodes.
+function to_code(node) {
+  if (node.hasOwnProperty("to_code")) {
+    return node.to_code()
+  } else if (node.nodeType === 3) { // text node
+    return node.data.replaceAll("\u00A0"," "); /* Remove non-breaking spaces...which are produced by space bar, at least when the element is ordinary content-editable (perhaps not for contenteditable="plaintext-only") */
+  } else {
+    return Array.from(node.childNodes).map(toCode).join("")
+  }
 }
 
-function arg_to_widget(code, type) {
+function arg_to_widget(root_widget, code, type) {
   if (type[".class"] === "UnionType") {
     const items = type["items"]
     // If all string literals...
@@ -219,8 +231,8 @@ function arg_to_widget(code, type) {
       let select = document.createElement("select")
       select.innerHTML = items.map(type2 => "<option>" + JSON.stringify(type2["value"]) + "</option>").join("")
       select.addEventListener("click", ev => { ev.stopPropagation() });
-      select.toCode = function() { return  this.value; };
-      // START HERE: make it live update when the selection changes, not just on keyup
+      select.addEventListener("change", ev => { root_widget.sync_editor_and_output() });
+      select.to_code = function() { return this.value; };
       return select
     } else {
       return document.createTextNode(code);
@@ -230,24 +242,75 @@ function arg_to_widget(code, type) {
   }
 }
 
-// Walk the widget tree and convert bits to code
-function elToCode(el) {
-  if (el.hasOwnProperty("toCode")) {
-    return el.toCode()
-  } else {
-    let code = "";
-    for (child of el.childNodes) {
-      if (child.nodeType === 3) {
-        // Text node
-        code += child.data.replaceAll("\u00A0"," "); /* Remove non-breaking spaces...which are produced by space bar, at least when the element is ordinary content-editable (perhaps not for contenteditable="plaintext-only") */
-      } else if (child.tagName === "BR") { // needed this in Maniposynth
-        code += "\n"
-      } else {
-        code += elToCode(child);
-      }
-    }
-    return code;
+function siblingsAfter(node) {
+  const siblings = []
+  while (node = node.nextSibling) {
+    siblings.push(node)
   }
+  return siblings
+}
+
+// In right-to-left (reversed) order
+function siblingsBefore(node) {
+  const siblings = []
+  while (node = node.previousSibling) {
+    siblings.push(node)
+  }
+  return siblings
+}
+
+function make_arg_el(root_widget, arg, options) {
+  const arg_el = document.createElement('span');
+  const remove_button = document.createElement('span');
+  remove_button.innerText = "❌";
+  remove_button.style.fontSize = "0.5em";
+  remove_button.style.verticalAlign = "super";
+  remove_button.style.cursor = "pointer";
+  remove_button.title = `Remove argument \`${arg.name}\``;
+  remove_button.to_code = () => "";
+  remove_button.addEventListener("click", ev => {
+    const ellipses_el = siblingsAfter(arg_el).find(node => node.hidden_arg_els !== undefined)
+    // Try to remove the extra comma.
+    // Need to skip any ellipses elements.
+    const node_before = siblingsBefore(arg_el).find(node => to_code(node) !== "" && !node.textContent.match(/^\s*$/))
+    const node_after  = siblingsAfter(arg_el) .find(node => to_code(node) !== "" && !node.textContent.match(/^\s*$/))
+    if (node_before?.textContent?.match(/\s*,\s*$/)) {
+      node_before.textContent = node_before.textContent.replace(/\s*,\s*$/, "");
+    } else if (node_after?.textContent?.match(/^\s*,\s*/)) {
+      node_after.textContent = node_before.textContent.replace(/^\s*,\s*/, "");
+    }
+    // console.log(arg_el)
+    arg_el.remove();
+    console.log(ellipses_el);
+    if (ellipses_el) {
+      ellipses_el.hidden_arg_els.push(arg_el)
+      ellipses_el.style.display = "inline"
+    }
+    root_widget.sync_editor_and_output();
+  });
+  if (options?.positional) {
+    arg_el.append(remove_button, arg_to_widget(root_widget, arg.code, arg.type));
+  } else {
+    arg_el.append(remove_button, arg.name, "=", arg_to_widget(root_widget, arg.code, arg.type));
+  }
+  return arg_el;
+}
+
+function make_ellipses_el(root_widget, hidden_arg_els) {
+  const ellipses_el = document.createElement('span')
+  ellipses_el.hidden_arg_els = hidden_arg_els
+  ellipses_el.style.cursor = "pointer";
+  ellipses_el.to_code = () => "";
+  ellipses_el.innerHTML = " " + ellipses_svg_html;
+  ellipses_el.addEventListener("click", ev => {
+    ev.stopPropagation();
+    ellipses_el.before(", ", ...ellipses_el.hidden_arg_els.intersperse(", "));
+    ellipses_el.hidden_arg_els = []
+    ellipses_el.style.display = "none"
+    root_widget.sync_editor_and_output()
+  })
+  ellipses_el.title = "Show optional args: " + hidden_arg_els.map(to_code).join(", ")
+  return ellipses_el;
 }
 
 function infer_types_up_through(cell) {
@@ -383,26 +446,18 @@ function infer_types_up_through(cell) {
 
           const arg_val_code = cm.getRange(item_to_start_pos(arg), item_to_end_pos(arg))
 
-          arg_el = document.createElement('span')
-          arg_el.append(before_arg, arg_to_widget(arg_val_code, arg.type_at_func_def))
+          const arg_el = document.createElement('span')
+          arg_el.append(before_arg, arg_to_widget(widget, arg_val_code, arg.type_at_func_def))
           arg_els.push(arg_el)
         });
 
-        // missing_positional_args.forEach(arg => {
-          // .map(arg => arg.name + "=" + arg_to_widget(arg.code, arg.type)).join(", ")
+        if (missing_positional_args.length > 0) {
+          let missing_arg_els = missing_positional_args.map(arg => make_arg_el(widget, arg, { positional: true }));
 
-          // arg_els.push(arg_to_widget(arg.code, arg.type))
-          // document.createTextNode(arg_code)
-        // })
-        //   throw "boom";
-        //   replacement_str = `${needs_comma_after_positional_args ? ", " : ""}${escapeHtml(missing_positional_args)}`
-        //   widget_html += `<span style="cursor: pointer" title="${replacement_str}" data-replace-with="${replacement_str}">`
-        //   if (needs_comma_after_positional_args) {
-        //     widget_html += ", "
-        //     needs_comma_after_positional_args = false
-        //   }
-        //   widget_html += `${ellipses_svg_html}</span> `
-        // }
+          if (arg_els.length > 0) {
+            arg_els[arg_els.length - 1].append(make_ellipses_el(widget, missing_arg_els))
+          }
+        }
 
         given_keyword_args.forEach(arg => {
           let stuff_before = cm.getRange(start_pos, item_to_start_pos(arg));
@@ -410,10 +465,20 @@ function infer_types_up_through(cell) {
 
           const arg_val_code = cm.getRange(item_to_start_pos(arg), item_to_end_pos(arg))
 
-          arg_el = document.createElement('span')
-          arg_el.append(before_arg, arg_to_widget(arg_val_code, arg.type_at_func_def))
+          const arg_el = document.createElement('span')
+          arg_el.append(before_arg, arg_to_widget(widget, arg_val_code, arg.type_at_func_def))
           arg_els.push(arg_el)
         });
+
+        if (missing_keyword_args.length > 0) {
+          let missing_arg_els = missing_keyword_args.map(arg => make_arg_el(widget, arg));
+
+          if (arg_els.length > 0) {
+            arg_els[arg_els.length - 1].append(make_ellipses_el(widget, missing_arg_els))
+          }
+        }
+
+
 
         // let needs_comma_after_keyword_args = given_positional_args.length !== 0 || given_keyword_args.length !== 0
         // if (missing_keyword_args.length > 0) {
@@ -431,7 +496,7 @@ function infer_types_up_through(cell) {
 
         widget.append("(", args_el, ")")
 
-        const mark = cm.markText(start_pos,end_pos, {
+        const mark = cm.markText(start_pos, end_pos, {
           replacedWith: widget,
           inclusiveRight: true,
           inclusiveLeft: true,
@@ -451,17 +516,21 @@ function infer_types_up_through(cell) {
         //   });
         // })
 
+        widget.sync_editor_and_output = function () {
+          const {from, to} = mark.find()
+          const code = to_code(widget)
+          console.log(code)
+          cm.replaceRange(code, from, to)
+          snp_outer && redraw_cell(snp_outer);
+        }
+
         widget.addEventListener("keydown", ev => {
           ev.stopPropagation();
-          snp_outer && redraw_cell(snp_outer);
         });
 
         widget.addEventListener("keyup", ev => {
           ev.stopPropagation();
-          const {from, to} = mark.find()
-          const code = elToCode(widget)
-          console.log(code)
-          cm.replaceRange(code, from, to)
+          widget.sync_editor_and_output() // Live update is one keypress behind if we attach this to keydown :/
         });
 
         widget.addEventListener("mousedown", ev => {
