@@ -10,6 +10,16 @@ import mypy.types
 from mypy.traverser import TraverserVisitor
 # import json
 
+def unparse_mypy_expr(expr : mypy.nodes.Expression):
+    match expr:
+        case None | mypy.nodes.EllipsisExpr():
+            return None
+        case mypy.nodes.IntExpr() | mypy.nodes.FloatExpr():
+            return str(expr.value)
+        case _:
+            return str(expr)
+
+
 def to_json_dict(node, type):
     # print(type)
     # print(type.serialize())
@@ -42,17 +52,33 @@ class MyVisitor(TraverserVisitor):
         # print(callee_type.__class__)
         if isinstance(callee_type, mypy.types.CallableType):
             # loc = (node.line, node.column, node.end_line, node.end_column)
-            type_dict = to_json_dict(node, callee_type)
-            type_dict["given_args"] = [to_json_dict(arg, self.types_dict.get(arg)) for arg in node.args]
-            self.out.append(type_dict)
+            given_args = []
+            for arg, name, kind in zip(node.args, node.arg_names, node.arg_kinds):
+                given_arg = to_json_dict(arg, self.types_dict.get(arg))
+                given_arg["name"] = name
+                given_arg["kind"] = kind.value
+                given_args.append(given_arg)
+
+            callee = to_json_dict(node.callee, callee_type)
+            if callee_type.definition and callee_type.definition.arguments:
+                callee["definition_arguments_default_code"] = [unparse_mypy_expr(arg.initializer) for arg in callee_type.definition.arguments]
+                if len(callee_type.arg_kinds) + 1 == len(callee_type.definition.arguments):
+                    # remove "self"
+                    callee["definition_arguments_default_code"] = callee["definition_arguments_default_code"][1:]
+
+            self.out.append({
+                "call":       to_json_dict(node, self.types_dict.get(node)),
+                "callee":     callee,
+                "given_args": given_args,
+            })
             # print(json.dumps(callee_type.serialize()))
             # print(callee_type.definition)
             # print(callee_type.arg_types)
             # for arg_name, arg_kind, arg_type in zip(callee_type.arg_names, callee_type.arg_kinds, callee_type.arg_types):
-                # print(arg_name, arg_kind, arg_type, json.dumps(arg_type.serialize()))
+            #     print(arg_name, arg_kind, arg_type, json.dumps(arg_type.serialize()))
 
-            # for arg in node.args:
-            #     print(arg)
+            # for arg, name in zip(node.args, node.arg_names):
+            #     print(arg, name)
             #     print(self.types_dict.get(arg))
 
         # if node.analyzed is not None:
