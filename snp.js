@@ -205,6 +205,55 @@ ellipses_svg_html =
   </g>
   </svg>`;
 
+// this is copy-pasted from dial.svg
+dial_svg_html =
+  `<?xml version="1.0" encoding="utf-8"?>
+  <svg x="0pt" y="0pt" width="14pt" height="14pt" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <g id="1">
+      <title>Layer 1</title>
+      <linearGradient x1="7" y1="14" x2="7" y2="-5.00679e-06" gradientUnits="userSpaceOnUse" id="4">
+        <stop style="stop-color:#505050;stop-opacity:1;"/>
+        <stop offset="1" style="stop-color:#f7f7f7;stop-opacity:1;"/>
+      </linearGradient>
+      <defs>
+        <title>Path</title>
+        <g id="2">
+          <defs>
+            <path id="3" d="M7,0 C10.866,0,14,3.13401,14,7 C14,10.866,10.866,14,7,14 C3.13401,14,0,10.866,0,7 C0,3.13401,3.13401,0,7,0 z"/>
+          </defs>
+          <use xlink:href="#3" style="fill:url(#4);fill-opacity:1;fill-rule:evenodd;opacity:1;stroke:none;"/>
+        </g>
+      </defs>
+      <use xlink:href="#2"/>
+      <defs>
+        <title>Path</title>
+        <g id="5">
+          <defs>
+            <path id="6" d="M7,1 C10.3137,1,13,3.68629,13,7 C13,10.3137,10.3137,13,7,13 C3.68629,13,1,10.3137,1,7 C1,3.68629,3.68629,1,7,1 z"/>
+          </defs>
+          <use xlink:href="#6" style="fill:#d0d0d0;fill-opacity:1;fill-rule:evenodd;opacity:1;stroke:none;"/>
+        </g>
+      </defs>
+      <use xlink:href="#5"/>
+    </g>
+    <g id="7">
+      <title>nub</title>
+      <linearGradient x1="7" y1="6" x2="7" y2="2" gradientUnits="userSpaceOnUse" id="10">
+        <stop style="stop-color:#ffffff;stop-opacity:1;"/>
+        <stop offset="1" style="stop-color:#4e4e4e;stop-opacity:1;"/>
+      </linearGradient>
+      <defs>
+        <title>Path</title>
+        <g id="8">
+          <defs>
+            <path id="9" d="M7,2 C8.10457,2,9,2.89543,9,4 C9,5.10457,8.10457,6,7,6 C5.89543,6,5,5.10457,5,4 C5,2.89543,5.89543,2,7,2 z"/>
+          </defs>
+          <use xlink:href="#9" style="fill:url(#10);fill-opacity:1;fill-rule:evenodd;opacity:1;stroke:none;"/>
+        </g>
+      </defs>
+      <use xlink:href="#8"/>
+    </g>
+  </svg>`;
 
 // https://stackoverflow.com/a/6234804
 // function escapeHtml(str) {
@@ -219,11 +268,12 @@ function to_code(node) {
   } else if (node.nodeType === 3) { // text node
     return node.data.replaceAll("\u00A0"," "); /* Remove non-breaking spaces...which are produced by space bar, at least when the element is ordinary content-editable (perhaps not for contenteditable="plaintext-only") */
   } else {
-    return Array.from(node.childNodes).map(toCode).join("")
+    return Array.from(node.childNodes).map(to_code).join("")
   }
 }
 
 function arg_to_widget(root_widget, code, type) {
+  console.log(code, type)
   if (type[".class"] === "UnionType") {
     const items = type["items"]
     // If all string literals...
@@ -237,9 +287,65 @@ function arg_to_widget(root_widget, code, type) {
     } else {
       return document.createTextNode(code);
     }
+  } else if (type === "builtins.float") {
+    return make_dial_and_num(root_widget, code, change_per_px = 0.01)
   } else {
     return document.createTextNode(code);
   }
+}
+
+// START HERE: why is the dial on a new line
+function make_dial_and_num(root_widget, code, change_per_px) {
+  let decimal_places = Math.max(0, -Math.log(change_per_px))
+  let dial_and_num = document.createElement('span');
+  dial_and_num.innerHTML = dial_svg_html;
+  let dial = dial_and_num.firstElementChild;
+  let num_text = document.createTextNode(code);
+  dial_and_num.append(num_text);
+
+  dial.to_code = () => "";
+  dial.setAttribute("style", "vertical-align: middle; cursor: ns-resize");
+  let angle = 3.14159 / 2;
+  let r = 3;
+
+  let nub = Array.from(dial.querySelectorAll("g")).find(elem => elem.querySelector("title")?.textContent === "nub");
+  // console.log(nub)
+  // console.log(nub.parentElement);
+  dial.addEventListener("mousedown", ev => {
+    ev.stopPropagation();
+
+    let lastY = ev.screenY;
+
+    // console.log(ev)
+    let stopDrag = ev => {
+      document.body.removeEventListener("mousemove", moveDial);
+      document.body.removeEventListener("mouseup", stopDrag);
+      root_widget.sync_editor_and_output();
+    };
+    let moveDial = ev => {
+      ev.preventDefault();
+
+      const num = getNum();
+
+      const delta = -(ev.screenY - lastY) * change_per_px;
+      lastY = ev.screenY;
+
+      // Wonky to avoid the JS weirdness of how it displays IEEE floats
+      num_text.textContent = "" + parseFloat((num + delta).toFixed(decimal_places));
+
+      angle += delta * 0.1;
+      nub.setAttribute("transform", `translate(${Math.cos(angle) * r} ${-Math.sin(angle) * r + r})`);
+      // console.log(nub)
+      root_widget.sync_editor_and_output();
+    };
+
+    document.body.addEventListener("mousemove", moveDial);
+    document.body.addEventListener("mouseup", stopDrag);
+
+    let getNum = () => parseFloat(num_text.textContent);
+  });
+
+  return dial_and_num;
 }
 
 function siblingsAfter(node) {
@@ -281,7 +387,7 @@ function make_arg_el(root_widget, arg, options) {
     }
     // console.log(arg_el)
     arg_el.remove();
-    console.log(ellipses_el);
+    // console.log(ellipses_el);
     if (ellipses_el) {
       ellipses_el.hidden_arg_els.push(arg_el)
       ellipses_el.style.display = "inline"
@@ -565,6 +671,7 @@ function redraw_cell(snp_outer) {
   const img = snp_outer.img;
   const codeExecuting = cell.get_text();
   if (cell.busy) { return; }
+  console.log(`Executing: ${codeExecuting}`)
   cell.busy = true;
   // Hacktastic way to get live feedback
   const callbacks = cell.get_callbacks();
