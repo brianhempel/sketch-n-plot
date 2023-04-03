@@ -57,6 +57,16 @@ Array.prototype.intersperse = function(sep) {
   return this.flatMap((el, i) => i == 0 ? [el] : [sep, el]);
 }
 
+// Array.prototype.count = function(predicate) {
+//   let count = 0;
+//   this.forEach(x => {
+//     if (predicate(x)) {
+//       count += 1;
+//     }
+//   });
+//   return count
+// }
+
 // Array.prototype.takeWhile = function(predicate) {
 //   const out = [];
 //   for (const x of this) {
@@ -83,9 +93,9 @@ Array.prototype.intersperse = function(sep) {
 //   }
 // }
 
-function vectorAdd({x, y}, vec2) {
-  return { x: x + vec2.x, y: y + vec2.y };
-}
+// function vectorAdd({x, y}, vec2) {
+//   return { x: x + vec2.x, y: y + vec2.y };
+// }
 
 
 // global, for debugging only
@@ -163,52 +173,20 @@ function default_code_for_type(type) {
   }
 }
 
-ellipses_svg_html =
-  `<svg style="vertical-align: middle" x="0pt" y="0pt" width="14pt" height="14pt" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-    <g id="1">
-    <defs>
-      <g id="2">
-        <defs>
-          <path id="3" d="M14,8 C14,9.65685,12.6569,11,11,11 C11,11,3,11,3,11 C1.34315,11,6.45542e-07,9.65685,4.07123e-07,8 C8.8396e-07,6.34315,1.34315,5,3,5 C3,5,11,5,11,5 C12.6569,5,14,6.34315,14,8 z"/>
-        </defs>
-        <use xlink:href="#3" style="fill:#ffffff;fill-opacity:1;fill-rule:nonzero;opacity:1;stroke:none;"/>
-      </g>
-    </defs>
-    <use xlink:href="#2"/>
-    <defs>
-      <g id="4">
-        <defs>
-          <path id="5" d="M3,7 C3.55229,7,4,7.44772,4,8 C4,8.55228,3.55229,9,3,9 C2.44772,9,2,8.55228,2,8 C2,7.44772,2.44772,7,3,7 z"/>
-        </defs>
-        <use xlink:href="#5" style="fill:#000000;fill-opacity:1;fill-rule:evenodd;opacity:1;stroke:none;"/>
-      </g>
-    </defs>
-    <use xlink:href="#4"/>
-    <defs>
-      <g id="6">
-        <defs>
-          <path id="7" d="M7,7 C7.55229,7,8,7.44772,8,8 C8,8.55228,7.55229,9,7,9 C6.44772,9,6,8.55228,6,8 C6,7.44772,6.44772,7,7,7 z"/>
-        </defs>
-        <use xlink:href="#7" style="fill:#000000;fill-opacity:1;fill-rule:evenodd;opacity:1;stroke:none;"/>
-      </g>
-    </defs>
-    <use xlink:href="#6"/>
-    <defs>
-      <g id="8">
-        <defs>
-          <path id="9" d="M11,7 C11.5523,7,12,7.44772,12,8 C12,8.55228,11.5523,9,11,9 C10.4477,9,10,8.55228,10,8 C10,7.44772,10.4477,7,11,7 z"/>
-        </defs>
-        <use xlink:href="#9" style="fill:#000000;fill-opacity:1;fill-rule:evenodd;opacity:1;stroke:none;"/>
-      </g>
-    </defs>
-    <use xlink:href="#8"/>
-  </g>
-  </svg>`;
+// this is copy-pasted from ellipses.svg
+// Have to run the SVG through Image Optim first, to (a) remove title elements that create undesired tooltips and (b) remove the ID elements that unhelpfully collide across ALL svgs on the page and cause DOM manipulation bugs.
+ellipses_svg_html = `<svg height="14pt" viewBox="0 0 14 14" width="14pt" xmlns="http://www.w3.org/2000/svg"><path d="m14 8c0 1.65685-1.3431 3-3 3h-8c-1.65685 0-2.99999935-1.34315-2.99999959-3 .00000047-1.65685 1.34314959-3 2.99999959-3h8c1.6569 0 3 1.34315 3 3z" fill="#fff"/><g fill-rule="evenodd"><path d="m3 7c.55229 0 1 .44772 1 1s-.44771 1-1 1c-.55228 0-1-.44772-1-1s.44772-1 1-1z"/><path d="m7 7c.55229 0 1 .44772 1 1s-.44771 1-1 1c-.55228 0-1-.44772-1-1s.44772-1 1-1z"/><path d="m11 7c.5523 0 1 .44772 1 1s-.4477 1-1 1-1-.44772-1-1 .4477-1 1-1z"/></g></svg>`;
 
-// this is copy-pasted from dial.svg
-dial_svg_html =
-  `<?xml version="1.0" encoding="utf-8"?>
-  <svg x="0pt" y="0pt" width="14pt" height="14pt" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+// this is copy-pasted from dial.svg, but remove the newline between <?xml> and <svg>
+// For some reason, Image Optim chokes on this. I don't think it likes linear gradients.
+// Do our own ID mangling.
+// We are using the "nub" title to find the nub (for now) so don't remove titles.
+dial_svg_counter = 0
+function dial_svg_html() {
+  dial_svg_counter += 1
+  const unique_id = dial_svg_counter;
+
+  return `<?xml version="1.0" encoding="utf-8"?><svg x="0pt" y="0pt" width="14pt" height="14pt" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
     <g id="1">
       <title>Layer 1</title>
       <linearGradient x1="7" y1="14" x2="7" y2="-5.00679e-06" gradientUnits="userSpaceOnUse" id="4">
@@ -253,7 +231,8 @@ dial_svg_html =
       </defs>
       <use xlink:href="#8"/>
     </g>
-  </svg>`;
+  </svg>`.replaceAll(/id="(\d+)"/g, `id="dial${unique_id}_$1"`).replaceAll(/xlink:href="#(\d+)"/g, `xlink:href="#dial${unique_id}_$1"`).replaceAll(/\burl\(#(\d+)\)/g, `url(#dial${unique_id}_$1)`);
+}
 
 // https://stackoverflow.com/a/6234804
 // function escapeHtml(str) {
@@ -276,35 +255,75 @@ function arg_to_widget(root_widget, code, type) {
   console.log(code, type)
   if (type[".class"] === "UnionType") {
     const items = type["items"]
+    const literals = items.filter(type2 => type2[".class"] === "LiteralType")
     // If all string literals...
-    if (items.every(type2 => type2[".class"] === "LiteralType") && items.every(type2 => type2["fallback"] === "builtins.str")) {
+    if (items.length === literals.length && items.every(type2 => type2["fallback"] === "builtins.str")) {
+      // {
+      //   ".class": "UnionType",
+      //   "items": [
+      //     {
+      //       ".class": "LiteralType",
+      //       "value": "center",
+      //       "fallback": "builtins.str"
+      //     },
+      //     {
+      //       ".class": "LiteralType",
+      //       "value": "left",
+      //       "fallback": "builtins.str"
+      //     },
+      //     {
+      //       ".class": "LiteralType",
+      //       "value": "right",
+      //       "fallback": "builtins.str"
+      //     }
+      //   ]
+      // },
       let select = document.createElement("select")
       select.innerHTML = items.map(type2 => "<option>" + JSON.stringify(type2["value"]) + "</option>").join("")
       select.addEventListener("click", ev => { ev.stopPropagation() });
       select.addEventListener("change", ev => { root_widget.sync_editor_and_output() });
       select.to_code = function() { return this.value; };
       return select
+    } else if (items.length === 3 && items.includes("builtins.float") && literals.length === 2 && literals.every(type2 => typeof type2.value === "number")) {
+      // {
+      //   ".class": "UnionType",
+      //   "items": [
+      //     "builtins.float",
+      //     {
+      //       ".class": "LiteralType",
+      //       "value": 0,
+      //       "fallback": "builtins.int"
+      //     },
+      //     {
+      //       ".class": "LiteralType",
+      //       "value": 50,
+      //       "fallback": "builtins.int"
+      //     }
+      //   ]
+      // },
+      const [lo, hi] = literals.map(type2 => type2.value).sort()
+      const step_per_px = [10000000000, 1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1, 0.1, 0.01, 0.001, 0.0001, 1.0e-05, 1.0e-06, 1.0e-07, 1.0e-08, 1.0e-09, 1.0e-10].find(n => (hi - lo) / n >= 30) || 0.01
+      return make_dial_and_num(root_widget, code, step_per_px)
     } else {
       return document.createTextNode(code);
     }
   } else if (type === "builtins.float") {
-    return make_dial_and_num(root_widget, code, change_per_px = 0.01)
+    return make_dial_and_num(root_widget, code, 0.01)
   } else {
     return document.createTextNode(code);
   }
 }
 
-// START HERE: why is the dial on a new line
 function make_dial_and_num(root_widget, code, change_per_px) {
   let decimal_places = Math.max(0, -Math.log(change_per_px))
   let dial_and_num = document.createElement('span');
-  dial_and_num.innerHTML = dial_svg_html;
+  dial_and_num.innerHTML = dial_svg_html();
   let dial = dial_and_num.firstElementChild;
   let num_text = document.createTextNode(code);
   dial_and_num.append(num_text);
 
   dial.to_code = () => "";
-  dial.setAttribute("style", "vertical-align: middle; cursor: ns-resize");
+  dial.setAttribute("style", "vertical-align: text-bottom; cursor: ns-resize");
   let angle = 3.14159 / 2;
   let r = 3;
 
@@ -327,13 +346,14 @@ function make_dial_and_num(root_widget, code, change_per_px) {
 
       const num = getNum();
 
-      const delta = -(ev.screenY - lastY) * change_per_px;
+      const mouseDelta = -(ev.screenY - lastY);
+      const delta = mouseDelta * change_per_px;
       lastY = ev.screenY;
 
       // Wonky to avoid the JS weirdness of how it displays IEEE floats
       num_text.textContent = "" + parseFloat((num + delta).toFixed(decimal_places));
 
-      angle += delta * 0.1;
+      angle += mouseDelta * 0.1;
       nub.setAttribute("transform", `translate(${Math.cos(angle) * r} ${-Math.sin(angle) * r + r})`);
       // console.log(nub)
       root_widget.sync_editor_and_output();
@@ -365,39 +385,44 @@ function siblingsBefore(node) {
   return siblings
 }
 
+// arg is { name:, kind:, code:, type: }
+// options is optional, default is { positional: false }
 function make_arg_el(root_widget, arg, options) {
   const arg_el = document.createElement('span');
-  const remove_button = document.createElement('span');
-  remove_button.innerText = "❌";
-  remove_button.style.fontSize = "0.5em";
-  remove_button.style.verticalAlign = "super";
-  remove_button.style.cursor = "pointer";
-  remove_button.title = `Remove argument \`${arg.name}\``;
-  remove_button.to_code = () => "";
-  remove_button.addEventListener("click", ev => {
-    const ellipses_el = siblingsAfter(arg_el).find(node => node.hidden_arg_els !== undefined)
-    // Try to remove the extra comma.
-    // Need to skip any ellipses elements.
-    const node_before = siblingsBefore(arg_el).find(node => to_code(node) !== "" && !node.textContent.match(/^\s*$/))
-    const node_after  = siblingsAfter(arg_el) .find(node => to_code(node) !== "" && !node.textContent.match(/^\s*$/))
-    if (node_before?.textContent?.match(/\s*,\s*$/)) {
-      node_before.textContent = node_before.textContent.replace(/\s*,\s*$/, "");
-    } else if (node_after?.textContent?.match(/^\s*,\s*/)) {
-      node_after.textContent = node_before.textContent.replace(/^\s*,\s*/, "");
-    }
-    // console.log(arg_el)
-    arg_el.remove();
-    // console.log(ellipses_el);
-    if (ellipses_el) {
-      ellipses_el.hidden_arg_els.push(arg_el)
-      ellipses_el.style.display = "inline"
-    }
-    root_widget.sync_editor_and_output();
-  });
+  if (arg.kind !== "ARG_POS") {
+    const remove_button = document.createElement('span');
+    remove_button.innerText = "❌";
+    remove_button.style.fontSize = "0.5em";
+    remove_button.style.verticalAlign = "super";
+    remove_button.style.cursor = "pointer";
+    remove_button.title = `Remove argument \`${arg.name}\``;
+    remove_button.to_code = () => "";
+    remove_button.addEventListener("click", ev => {
+      const ellipses_el = siblingsAfter(arg_el).find(node => node.hidden_arg_els !== undefined)
+      // Try to remove the extra comma.
+      // Need to skip any ellipses elements.
+      const node_before = siblingsBefore(arg_el).find(node => to_code(node) !== "" && !node.textContent.match(/^\s*$/))
+      const node_after  = siblingsAfter(arg_el) .find(node => to_code(node) !== "" && !node.textContent.match(/^\s*$/))
+      if (node_before?.textContent?.match(/\s*,\s*$/)) {
+        node_before.textContent = node_before.textContent.replace(/\s*,\s*$/, "");
+      } else if (node_after?.textContent?.match(/^\s*,\s*/)) {
+        node_after.textContent = node_before.textContent.replace(/^\s*,\s*/, "");
+      }
+      // console.log(arg_el)
+      arg_el.remove();
+      // console.log(ellipses_el);
+      if (ellipses_el) {
+        ellipses_el.hidden_arg_els.push(arg_el)
+        ellipses_el.style.display = "inline"
+      }
+      root_widget.sync_editor_and_output();
+    });
+    arg_el.append(remove_button)
+  }
   if (options?.positional) {
-    arg_el.append(remove_button, arg_to_widget(root_widget, arg.code, arg.type));
+    arg_el.append(arg_to_widget(root_widget, arg.code, arg.type));
   } else {
-    arg_el.append(remove_button, arg.name, "=", arg_to_widget(root_widget, arg.code, arg.type));
+    arg_el.append(arg.name, "=", arg_to_widget(root_widget, arg.code, arg.type));
   }
   return arg_el;
 }
@@ -408,6 +433,7 @@ function make_ellipses_el(root_widget, hidden_arg_els) {
   ellipses_el.style.cursor = "pointer";
   ellipses_el.to_code = () => "";
   ellipses_el.innerHTML = " " + ellipses_svg_html;
+  ellipses_el.querySelector("svg").style.verticalAlign = "middle";
   ellipses_el.addEventListener("click", ev => {
     ev.stopPropagation();
     ellipses_el.before(", ", ...ellipses_el.hidden_arg_els.intersperse(", "));
@@ -416,14 +442,19 @@ function make_ellipses_el(root_widget, hidden_arg_els) {
     root_widget.sync_editor_and_output()
   })
   ellipses_el.title = "Show optional args: " + hidden_arg_els.map(to_code).join(", ")
+  if (hidden_arg_els.length === 0) {
+    ellipses_el.style.display = "none"
+  }
   return ellipses_el;
 }
+
+// START HERE need attach to the *plot*
 
 function infer_types_up_through(cell) {
   let code_cells = Jupyter.notebook.get_cells().filter(cell => cell.cell_type === "code");
 
   // limit to cells up through the given cell
-  code_cells_before_cell = code_cells.slice(0, code_cells.indexOf(cell));
+  let code_cells_before_cell = code_cells.slice(0, code_cells.indexOf(cell));
   // code_cells             = code_cells.slice(0, code_cells.indexOf(cell)+1);
 
   function is_not_magic(code) {
@@ -442,7 +473,7 @@ function infer_types_up_through(cell) {
 
   // console.log(notebook_code_through_cell);
 
-  cell_lineno = notebook_code_before_cell.split("\n").length + 1
+  let cell_lineno = notebook_code_before_cell.split("\n").length + 1
 
   console.log({cell_lineno: cell_lineno})
 
@@ -451,7 +482,7 @@ function infer_types_up_through(cell) {
   // console.log(notebook_code_up_through_current_cell)
   const callbacks = cell.get_callbacks();
   const just_log  = { shell: { reply: console.log }, iopub: { output: console.log }};
-  old_callback = callbacks.shell.reply;
+  let old_callback = callbacks.shell.reply;
   callbacks.shell.reply = (msg) => {
     if (msg.msg_type == "execute_reply" && msg.content.status == "ok" &&msg.content.user_expressions.inferred.status == "ok") {
       console.log(msg.content.user_expressions.inferred)
@@ -462,9 +493,6 @@ function infer_types_up_through(cell) {
       let cm = cell.code_mirror;
 
       let snp_outer = cell.element[0].querySelector(".snp_outer");
-
-      // START HERE
-      // start widgetizing the call
 
       // for decoding the "arg_kind" numeric property
       const int_to_arg_kind = [
@@ -500,24 +528,23 @@ function infer_types_up_through(cell) {
           arg_defaults.push({ name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type })
         });
 
+        let given_args2 = []
         given_args.forEach((given_arg, arg_i) => {
-          let arg_i_at_func_def = given_arg["name"] ? callee.arg_names.indexOf(given_arg.name) : arg_i
-          given_arg["type_at_func_def"] = callee.arg_types[arg_i_at_func_def]
+          const arg_kind = int_to_arg_kind[given_arg.kind];
+          const arg_i_at_func_def = given_arg["name"] ? callee.arg_names.indexOf(given_arg.name) : arg_i
+          const arg_val_code = cm.getRange(item_to_start_pos(given_arg), item_to_end_pos(given_arg))
+          given_args2.push({ name: given_arg.name, kind: arg_kind, code: arg_val_code, type: callee.arg_types[arg_i_at_func_def] })
         })
 
         // console.log(arg_defaults.map(({name, code}) => `${name}=${code}`).join(", "))
 
-        let call_code   = cm.getRange(start_pos, end_pos)
         let callee_code = cm.getRange(item_to_start_pos(callee), item_to_end_pos(callee))
-        // let args_code   = cm.getRange(item_to_end_pos(callee), end_pos).replace(/^\s*\(/, "").replace(/\)\s*$/, "")
-
-        // let defaults_code = arg_defaults.map(({name, kind, code}) => kind === "ARG_POS" ? code : `${name}=${code}`).join(", ")
 
         const widget = document.createElement("div")
         widget.style.display = "inline-block"
         widget.style.border = "solid gray 1px"
 
-        const [given_positional_args, given_keyword_args] = given_args.partition(arg => !arg.name)
+        const [given_positional_args, given_keyword_args] = given_args2.partition(arg => !arg.name)
 
         const missing_positional_args =
           arg_defaults.
@@ -531,71 +558,34 @@ function infer_types_up_through(cell) {
             filter(arg => !given_keyword_args.some(given_arg => given_arg.name === arg.name)).
             filter(arg => arg.kind !== "ARG_STAR2") // ignore **kwargs
 
-        // const missing_positional_args_code = missing_positional_args.map(({name, kind, code}) => kind === "ARG_POS" ? code : `${name}=${code}`).join(", ")
-        // const missing_keyword_args_code    = missing_keyword_args.   map(({name, kind, code}) => kind === "ARG_POS" ? code : `${name}=${code}`).join(", ")
-
-        // console.log(missing_positional_args_code)
-        // console.log(missing_keyword_args_code)
-
         let callee_el = document.createElement('span')
         callee_el.innerText = callee_code
         widget.appendChild(callee_el)
 
         let args_el = document.createElement('span')
-        args_el.contentEditable = "plaintext-only"
+        try {
+          args_el.contentEditable = "plaintext-only"
+        } catch (_) {
+          args_el.contentEditable = true // Firefox
+        }
 
         let arg_els = []
 
-        given_positional_args.forEach(arg => {
-          let stuff_before = cm.getRange(start_pos, item_to_start_pos(arg));
-          const before_arg = stuff_before.match(/[\s\w=]*$/)[0];
+        arg_els.push(...given_positional_args.map(arg => make_arg_el(widget, arg, { positional: true })));
 
-          const arg_val_code = cm.getRange(item_to_start_pos(arg), item_to_end_pos(arg))
+        let missing_positional_arg_els = missing_positional_args.map(arg => make_arg_el(widget, arg, { positional: true }));
 
-          const arg_el = document.createElement('span')
-          arg_el.append(before_arg, arg_to_widget(widget, arg_val_code, arg.type_at_func_def))
-          arg_els.push(arg_el)
-        });
+        arg_els.push(make_ellipses_el(widget, missing_positional_arg_els))
 
-        if (missing_positional_args.length > 0) {
-          let missing_arg_els = missing_positional_args.map(arg => make_arg_el(widget, arg, { positional: true }));
+        arg_els.push(...given_keyword_args.map(arg => make_arg_el(widget, arg)));
 
-          if (arg_els.length > 0) {
-            arg_els[arg_els.length - 1].append(make_ellipses_el(widget, missing_arg_els))
-          }
-        }
+        let missing_keyword_arg_els = missing_keyword_args.map(arg => make_arg_el(widget, arg));
 
-        given_keyword_args.forEach(arg => {
-          let stuff_before = cm.getRange(start_pos, item_to_start_pos(arg));
-          const before_arg = stuff_before.match(/[\s\w=]*$/)[0];
-
-          const arg_val_code = cm.getRange(item_to_start_pos(arg), item_to_end_pos(arg))
-
-          const arg_el = document.createElement('span')
-          arg_el.append(before_arg, arg_to_widget(widget, arg_val_code, arg.type_at_func_def))
-          arg_els.push(arg_el)
-        });
-
-        if (missing_keyword_args.length > 0) {
-          let missing_arg_els = missing_keyword_args.map(arg => make_arg_el(widget, arg));
-
-          if (arg_els.length > 0) {
-            arg_els[arg_els.length - 1].append(make_ellipses_el(widget, missing_arg_els))
-          }
-        }
-
-
-
-        // let needs_comma_after_keyword_args = given_positional_args.length !== 0 || given_keyword_args.length !== 0
-        // if (missing_keyword_args.length > 0) {
-        //   let missing_keyword_args_code = missing_keyword_args.map(arg => arg.name + "=" + arg_to_widget(arg.code, arg.type)).join(", ")
-        //   replacement_str = `${needs_comma_after_keyword_args ? ", " : ""}${escapeHtml(missing_keyword_args_code)}`
-        //   widget_html += `<span style="cursor: pointer" title="${replacement_str}" data-replace-with="${replacement_str}">${needs_comma_after_keyword_args ? ", " : ""}${ellipses_svg_html}</span>`
-        // }
+        arg_els.push(make_ellipses_el(widget, missing_keyword_arg_els))
 
         arg_els.forEach((arg_el, i) => {
-          if (i !== 0) {
-            args_el.append(",")
+          if (i !== 0 && typeof arg_el.hidden_arg_els === "undefined") { // no comma before first arg or ellipses
+            args_el.append(", ")
           }
           args_el.appendChild(arg_el)
         })
@@ -608,24 +598,10 @@ function infer_types_up_through(cell) {
           inclusiveLeft: true,
         });
 
-        // widget.contentEditable = true
-        // widget.contentEditable = "plaintext-only"
-        // widget.innerText = item_code
-
-        // widget.querySelectorAll("[data-replace-with").forEach(elem => {
-        //   elem.addEventListener("click", ev => {
-        //     ev.stopPropagation();
-        //     elem.after(document.createTextNode(elem.dataset.replaceWith));
-        //     elem.remove();
-        //     const {from, to} = mark.find()
-        //     cm.replaceRange(widget.innerText, from, to)
-        //   });
-        // })
-
         widget.sync_editor_and_output = function () {
           const {from, to} = mark.find()
           const code = to_code(widget)
-          console.log(code)
+          // console.log(code)
           cm.replaceRange(code, from, to)
           snp_outer && redraw_cell(snp_outer);
         }
@@ -643,9 +619,10 @@ function infer_types_up_through(cell) {
           ev.stopPropagation();
         });
 
-        widget.addEventListener("mouseup", ev => {
-          ev.stopPropagation();
-        });
+        // Need to let mouseup propogate so that dial drag release works even when released on the widget
+        // widget.addEventListener("mouseup", ev => {
+        //   ev.stopPropagation();
+        // });
       });
     } else {
       console.error(msg);
@@ -668,11 +645,11 @@ class JsonDict():
 
 function redraw_cell(snp_outer) {
   const cell = snp_outer.cell;
+  if (cell.busy) { return; }
+  cell.busy = true;
   const img = snp_outer.img;
   const codeExecuting = cell.get_text();
-  if (cell.busy) { return; }
   console.log(`Executing: ${codeExecuting}`)
-  cell.busy = true;
   // Hacktastic way to get live feedback
   const callbacks = cell.get_callbacks();
   // console.log(cell.get_callbacks())
@@ -687,6 +664,7 @@ function redraw_cell(snp_outer) {
       temp_el.innerHTML = msg.content.data["image/svg+xml"]
       snp_outer.querySelector("svg").remove()
       snp_outer.appendChild(temp_el.children[0])
+      // Replace background image
       img.src = "data:image/png;base64," + msg.content.data["image/png"]; // This also triggers img.onload which calls attach_snp and reattaches all of our events!
     } else {
       // console.log(arguments);
@@ -697,8 +675,12 @@ function redraw_cell(snp_outer) {
         console.log(arguments)
       }
     }
-    cell.busy = false;
-    if (codeExecuting !== cell.get_text()) { redraw_cell(snp_outer); }
+    if (codeExecuting != cell.get_text()) {
+      cell.busy = false;
+      redraw_cell(snp_outer);
+    } else {
+      cell.busy = false;
+    }
   };
   cell.kernel.execute(codeExecuting, callbacks, {silent: false, store_history: true, stop_on_error: true});
 }
@@ -714,7 +696,9 @@ function attach_snp(img) {
   let cell = Jupyter.notebook.get_cells().filter(cell => cell.element[0] === cell_el)[0];
   snp_outer.cell = cell
 
-  cell.busy = false;
+  if (!cell.hasOwnProperty("busy")) { // We might be re-attaching, in which case busy is already defined and we don't want to clobber it.
+    cell.busy = false;
+  }
   // console.log("reattaching")
   // console.log(snp_outer);
   // console.log(cell_el);
