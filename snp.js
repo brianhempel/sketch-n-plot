@@ -629,18 +629,13 @@ function infer_types_up_through(cell) {
       old_callback(msg);
     }
   };
-  IPython.notebook.kernel.execute(`
-notebook_code_through_cell = ${JSON.stringify(notebook_code_through_cell)}
-execfile("type_inference.py")
-import json
-class JsonDict():
-    def __init__(self, dict):
-        self.dict = dict
-
-    def _repr_json_(self):
-       return self.dict
-`,  callbacks, { silent: false, user_expressions: { "inferred": "JsonDict(do_inference(notebook_code_through_cell))" } });
-
+  IPython.notebook.kernel.execute(
+    `notebook_code_through_cell = ${JSON.stringify(notebook_code_through_cell)}`,
+    callbacks, {
+      silent: false,
+      user_expressions: { "inferred": "JsonDict(do_inference(notebook_code_through_cell))" }
+    }
+  );
 }
 
 function redraw_cell(snp_outer) {

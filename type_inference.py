@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 
 import mypy
@@ -8,6 +9,7 @@ import mypy.main
 import mypy.options
 import mypy.types
 from mypy.traverser import TraverserVisitor
+import mypy.server.update
 # import json
 
 def unparse_mypy_expr(expr : mypy.nodes.Expression):
@@ -111,45 +113,79 @@ class MyVisitor(TraverserVisitor):
     #     pad
     #     IntExpr(10)))
 
-def do_inference(code):
-    # print(notebook_code_up_through_current_cell)
+import_lineset = set()
+fine_grained_build_manager = None
+mypy_result = None
+fscache = None
 
-    file_path = "current_notebook.py"
+file_path = "current_notebook.py"
+module_name = os.path.splitext(os.path.basename(file_path))[0]
+
+import_lines_regex = re.compile(r'^[^#\n]*import .*', re.MULTILINE)
+def import_lineset_in(code):
+    return set(import_lines_regex.findall(code))
+
+def do_inference(code):
+    global import_lineset
+    global fine_grained_build_manager
+    global mypy_result
+    global fscache
+    # print(notebook_code_up_through_current_cell)
 
     with open(file_path, "w") as file:
         file.write(code)
 
-    # options = mypy.options.Options()
-    sources, options = mypy.main.process_options([file_path])
+    if fine_grained_build_manager is None or import_lineset != import_lineset_in(code):
+        import_lineset = import_lineset_in(code)
 
-    options.incremental = False
-    # options.show_traceback = True
-    options.preserve_asts = True
-    options.strict_optional = True
-    options.warn_unused_configs = True
-    # options.fine_grained_incremental = True
-    # options.use_fine_grained_cache = True
-    options.mypy_path = ["python-type-stubs-main"]
-    options.follow_imports = "silent"
-    options.follow_imports_for_stubs = True
-    options.export_types = True
+        # options = mypy.options.Options()
+        sources, options = mypy.main.process_options([file_path])
 
-    module_name = os.path.splitext(os.path.basename(file_path))[0]
+        # # options.incremental = True
+        # options.incremental = False
+        # # options.show_traceback = True
+        # options.preserve_asts = True
+        # options.strict_optional = True
+        # options.warn_unused_configs = True
+        # # options.fine_grained_incremental = True
+        # # options.use_fine_grained_cache = True
+        # options.mypy_path = ["python-type-stubs-main"]
+        # options.follow_imports = "silent"
+        # options.follow_imports_for_stubs = True
+        # options.export_types = True
 
-    # sources = [mypy.build.BuildSource(file_path, module_name, None)]
+        options.incremental = True
+        # options.incremental = False
+        # options.show_traceback = True
+        options.preserve_asts = True
+        options.strict_optional = True
+        options.warn_unused_configs = True
+        options.fine_grained_incremental = True
+        options.use_fine_grained_cache = True
+        options.local_partial_types = True # https://github.com/python/mypy/issues/4492
+        options.mypy_path = ["python-type-stubs-main"]
+        options.follow_imports = "silent"
+        options.follow_imports_for_stubs = True
+        options.export_types = True
 
-    # print(options)
-    mypy_result = mypy.build.build(sources, options=options)
+        # print(options)
+        fscache = mypy.fscache.FileSystemCache() # IDK if this is needed
+        mypy_result = mypy.build.build(sources, options=options, fscache=fscache)
+
+        fine_grained_build_manager = mypy.server.update.FineGrainedBuildManager(mypy_result)
+
+    fine_grained_build_manager.update([(module_name, file_path)], [])
+    fine_grained_build_manager.flush_cache()
+    fscache.flush()
 
     for error in mypy_result.errors:
         print(error)
 
     tree = mypy_result.graph[module_name].tree
-
     # print(json.dumps(tree.serialize()))
 
     if tree is not None:
-    #     print(tree)
+        # print(tree)
         # print(mypy_result.types)
         visitor = MyVisitor(mypy_result.types)
         visitor.visit_mypy_file(tree)
