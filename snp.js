@@ -57,6 +57,11 @@ Array.prototype.intersperse = function(sep) {
   return this.flatMap((el, i) => i == 0 ? [el] : [sep, el]);
 }
 
+// lol javascript can't compare arrays
+function equal_by_json(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
 // Array.prototype.count = function(predicate) {
 //   let count = 0;
 //   this.forEach(x => {
@@ -67,17 +72,17 @@ Array.prototype.intersperse = function(sep) {
 //   return count
 // }
 
-// Array.prototype.takeWhile = function(predicate) {
-//   const out = [];
-//   for (const x of this) {
-//     if (predicate(x)) {
-//       out.push(x);
-//     } else {
-//       return out;
-//     }
-//   }
-//   return out;
-// }
+Array.prototype.takeWhile = function(predicate) {
+  const out = [];
+  for (const x of this) {
+    if (predicate(x)) {
+      out.push(x);
+    } else {
+      return out;
+    }
+  }
+  return out;
+}
 
 // Prefers first match in case of ties.
 // String.prototype.indexOfMatchClosestToIndex = function(targetStr, idealI) {
@@ -115,11 +120,12 @@ function deselect_all(snp_state) {
     selected.setAttribute("stroke-width", selected.dataset.oldStrokeWidth)
     snp_state.selected_shape = undefined
   }
-  const code_mirror_popup = snp_state.code_mirror_popup;
-  if (code_mirror_popup) {
-    code_mirror_popup.getWrapperElement().remove(); // delete editor "Remove getWrapperElement() from your tree to delete an editor instance"
-    snp_state.code_mirror_popup = undefined
-  }
+  snp_state.inspector.remove()
+  // const code_mirror_popup = snp_state.code_mirror_popup;
+  // if (code_mirror_popup) {
+  //   code_mirror_popup.getWrapperElement().remove(); // delete editor "Remove getWrapperElement() from your tree to delete an editor instance"
+  //   snp_state.code_mirror_popup = undefined
+  // }
 }
 
 function relativeTopLeft(el, container) {
@@ -448,9 +454,206 @@ function make_ellipses_el(root_widget, hidden_arg_els) {
   return ellipses_el;
 }
 
-// START HERE need attach to the *plot*
+// function infer_types_up_through_old(cell) {
+//   let code_cells = Jupyter.notebook.get_cells().filter(cell => cell.cell_type === "code");
 
-function infer_types_up_through(cell) {
+//   // limit to cells up through the given cell
+//   let code_cells_before_cell = code_cells.slice(0, code_cells.indexOf(cell));
+//   // code_cells             = code_cells.slice(0, code_cells.indexOf(cell)+1);
+
+//   function is_not_magic(code) {
+//     return !code.startsWith("%%");
+//   }
+
+//   let notebook_code_before_cell =
+//     code_cells_before_cell.
+//         // takeWhile(cell => cell.input_prompt_number !== "*").
+//         map(cell => cell.get_text()).
+//         filter(is_not_magic).
+//         // map((code, i) => `### Cell ${i} ###\n${code}`).
+//         join("\n");
+
+//   let notebook_code_through_cell = `${notebook_code_before_cell}\n${cell.get_text()}`;
+
+//   // console.log(notebook_code_through_cell);
+
+//   let cell_lineno = notebook_code_before_cell.split("\n").length + 1
+
+//   console.log({cell_lineno: cell_lineno})
+
+//   // console.log(cells);
+//   // console.log(cells.map(cell => cell.input_prompt_number));
+//   // console.log(notebook_code_up_through_current_cell)
+//   const callbacks = cell.get_callbacks();
+//   const just_log  = { shell: { reply: console.log }, iopub: { output: console.log }};
+//   let old_callback = callbacks.shell.reply;
+//   callbacks.shell.reply = (msg) => {
+//     if (msg.msg_type == "execute_reply" && msg.content.status == "ok" &&msg.content.user_expressions.inferred.status == "ok") {
+//       console.log(msg.content.user_expressions.inferred)
+//       const items = msg.content.user_expressions.inferred.data["application/json"];
+//       const cell_items = items.filter(call_info => call_info.callee.loc.line >= cell_lineno);
+//       console.log(cell_items);
+//       // console.log(JSON.stringify(cell_items));
+//       let cm = cell.code_mirror;
+
+//       let snp_outer = cell.element[0].querySelector(".snp_outer");
+
+//       // for decoding the "arg_kind" numeric property
+//       const int_to_arg_kind = [
+//         "ARG_POS",       // Positional argument
+//         "ARG_OPT",       // Positional, optional argument (functions only, not calls)
+//         "ARG_STAR",      // *arg argument
+//         "ARG_NAMED",     // Keyword argument x=y in call, or keyword-only function arg
+//         "ARG_STAR2",     // **arg argument
+//         "ARG_NAMED_OPT", // In an argument list, keyword-only and also optional
+//       ]
+
+//       cm.getAllMarks().forEach(mark => mark.clear())
+
+//       cell_items.forEach(({call, callee, given_args}) => {
+
+//         function item_to_start_pos(item) {
+//           return { line: item.loc.line     - cell_lineno, ch: item.loc.column     }
+//         }
+//         function item_to_end_pos(item) {
+//           return { line: item.loc.end_line - cell_lineno, ch: item.loc.end_column }
+//         }
+
+//         const start_pos = item_to_start_pos(call)
+//         const end_pos   = item_to_end_pos(call)
+
+//         let arg_defaults = []
+
+//         callee.arg_names.forEach((arg_name, arg_i) => {
+//           const arg_kind = int_to_arg_kind[callee.arg_kinds[arg_i]];
+//           const arg_type = callee.arg_types[arg_i];
+//           const arg_default_code = (callee["definition_arguments_default_code"] || [])[arg_i] || default_code_for_type(arg_type)
+
+//           arg_defaults.push({ name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type })
+//         });
+
+//         let given_args2 = []
+//         given_args.forEach((given_arg, arg_i) => {
+//           const arg_kind = int_to_arg_kind[given_arg.kind];
+//           const arg_i_at_func_def = given_arg["name"] ? callee.arg_names.indexOf(given_arg.name) : arg_i
+//           const arg_val_code = cm.getRange(item_to_start_pos(given_arg), item_to_end_pos(given_arg))
+//           given_args2.push({ name: given_arg.name, kind: arg_kind, code: arg_val_code, type: callee.arg_types[arg_i_at_func_def] })
+//         })
+
+//         // console.log(arg_defaults.map(({name, code}) => `${name}=${code}`).join(", "))
+
+//         let callee_code = cm.getRange(item_to_start_pos(callee), item_to_end_pos(callee))
+
+//         const widget = document.createElement("div")
+//         widget.style.display = "inline-block"
+//         widget.style.border = "solid gray 1px"
+
+//         const [given_positional_args, given_keyword_args] = given_args2.partition(arg => !arg.name)
+
+//         const missing_positional_args =
+//           arg_defaults.
+//             slice(given_positional_args.length).
+//             takeWhile(arg => arg.kind === "ARG_POS")
+
+//         const missing_keyword_args =
+//           arg_defaults.
+//             slice(given_positional_args.length).
+//             slice(missing_positional_args.length).
+//             filter(arg => !given_keyword_args.some(given_arg => given_arg.name === arg.name)).
+//             filter(arg => arg.kind !== "ARG_STAR2") // ignore **kwargs
+
+//         let callee_el = document.createElement('span')
+//         callee_el.innerText = callee_code
+//         widget.appendChild(callee_el)
+
+//         let args_el = document.createElement('span')
+//         try {
+//           args_el.contentEditable = "plaintext-only"
+//         } catch (_) {
+//           args_el.contentEditable = true // Firefox
+//         }
+
+//         let arg_els = []
+
+//         arg_els.push(...given_positional_args.map(arg => make_arg_el(widget, arg, { positional: true })));
+
+//         let missing_positional_arg_els = missing_positional_args.map(arg => make_arg_el(widget, arg, { positional: true }));
+
+//         arg_els.push(make_ellipses_el(widget, missing_positional_arg_els))
+
+//         arg_els.push(...given_keyword_args.map(arg => make_arg_el(widget, arg)));
+
+//         let missing_keyword_arg_els = missing_keyword_args.map(arg => make_arg_el(widget, arg));
+
+//         arg_els.push(make_ellipses_el(widget, missing_keyword_arg_els))
+
+//         arg_els.forEach((arg_el, i) => {
+//           if (i !== 0 && typeof arg_el.hidden_arg_els === "undefined") { // no comma before first arg or ellipses
+//             args_el.append(", ")
+//           }
+//           args_el.appendChild(arg_el)
+//         })
+
+//         widget.append("(", args_el, ")")
+
+//         const mark = cm.markText(start_pos, end_pos, {
+//           replacedWith: widget,
+//           inclusiveRight: true,
+//           inclusiveLeft: true,
+//         });
+
+//         widget.sync_editor_and_output = function () {
+//           const {from, to} = mark.find()
+//           const code = to_code(widget)
+//           // console.log(code)
+//           cm.replaceRange(code, from, to)
+//           snp_outer && redraw_cell(snp_outer);
+//         }
+
+//         widget.addEventListener("keydown", ev => {
+//           ev.stopPropagation();
+//         });
+
+//         widget.addEventListener("keyup", ev => {
+//           ev.stopPropagation();
+//           widget.sync_editor_and_output() // Live update is one keypress behind if we attach this to keydown :/
+//         });
+
+//         widget.addEventListener("mousedown", ev => {
+//           ev.stopPropagation();
+//         });
+
+//         // Need to let mouseup propogate so that dial drag release works even when released on the widget
+//         // widget.addEventListener("mouseup", ev => {
+//         //   ev.stopPropagation();
+//         // });
+//       });
+//     } else {
+//       console.error(msg);
+//       old_callback(msg);
+//     }
+//   };
+//   IPython.notebook.kernel.execute(
+//     `notebook_code_through_cell = ${JSON.stringify(notebook_code_through_cell)}`,
+//     callbacks, {
+//       silent: false,
+//       user_expressions: { "inferred": "JsonDict(do_inference(notebook_code_through_cell))" }
+//     }
+//   );
+// }
+
+// for decoding the "arg_kind" numeric property
+int_to_arg_kind = [
+  "ARG_POS",       // Positional argument
+  "ARG_OPT",       // Positional, optional argument (functions only, not calls)
+  "ARG_STAR",      // *arg argument
+  "ARG_NAMED",     // Keyword argument x=y in call, or keyword-only function arg
+  "ARG_STAR2",     // **arg argument
+  "ARG_NAMED_OPT", // In an argument list, keyword-only and also optional
+]
+
+function infer_types_and_attach_widgets(snp_state) {
+  const { cell, snp_outer, inspector } = snp_state
   let code_cells = Jupyter.notebook.get_cells().filter(cell => cell.cell_type === "code");
 
   // limit to cells up through the given cell
@@ -490,144 +693,116 @@ function infer_types_up_through(cell) {
       const cell_items = items.filter(call_info => call_info.callee.loc.line >= cell_lineno);
       console.log(cell_items);
       // console.log(JSON.stringify(cell_items));
-      let cm = cell.code_mirror;
 
-      let snp_outer = cell.element[0].querySelector(".snp_outer");
+      let widgets = widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state);
 
-      // for decoding the "arg_kind" numeric property
-      const int_to_arg_kind = [
-        "ARG_POS",       // Positional argument
-        "ARG_OPT",       // Positional, optional argument (functions only, not calls)
-        "ARG_STAR",      // *arg argument
-        "ARG_NAMED",     // Keyword argument x=y in call, or keyword-only function arg
-        "ARG_STAR2",     // **arg argument
-        "ARG_NAMED_OPT", // In an argument list, keyword-only and also optional
-      ]
+      console.log(widgets)
 
-      cm.getAllMarks().forEach(mark => mark.clear())
+      snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
+        const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
+        const [start_pos, end_pos] = [ // CodeMirror locs
+          {line: lineno-1,     ch: col_offset},
+          {line: end_lineno-1, ch: end_col_offset}
+        ];
 
-      cell_items.forEach(({call, callee, given_args}) => {
+        const widget = widgets.find(w => equal_by_json([start_pos, end_pos], [w.start_pos, w.end_pos]))
 
-        function item_to_start_pos(item) {
-          return { line: item.loc.line     - cell_lineno, ch: item.loc.column     }
+        if (widget) {
+          hover_region.addEventListener("click", ev => {
+            const first_shape = hover_region.querySelector("[stroke-width]")
+            if (snp_state.selected_shape == first_shape) {
+              deselect_all(snp_state);
+            } else {
+              deselect_all(snp_state);
+              select(snp_state, first_shape);
+              const [top, left] = relativeTopLeft(first_shape, snp_outer);
+              inspector.style = `
+                position: absolute;
+                top: ${top}px;
+                left: ${left + first_shape.getBoundingClientRect().width}px;
+                background: #eee;
+                border: solid 1px #aaa;
+              `.replace(/\n\s*/g, " ")
+              inspector.innerHTML = "";
+              snp_outer.appendChild(inspector);
+              inspector.appendChild(widget);
+            }
+            // console.log(hovered_elems)
+            ev.stopPropagation();
+          });
         }
-        function item_to_end_pos(item) {
-          return { line: item.loc.end_line - cell_lineno, ch: item.loc.end_column }
-        }
+      })
 
-        const start_pos = item_to_start_pos(call)
-        const end_pos   = item_to_end_pos(call)
-
-        let arg_defaults = []
-
-        callee.arg_names.forEach((arg_name, arg_i) => {
-          const arg_kind = int_to_arg_kind[callee.arg_kinds[arg_i]];
-          const arg_type = callee.arg_types[arg_i];
-          const arg_default_code = (callee["definition_arguments_default_code"] || [])[arg_i] || default_code_for_type(arg_type)
-
-          arg_defaults.push({ name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type })
-        });
-
-        let given_args2 = []
-        given_args.forEach((given_arg, arg_i) => {
-          const arg_kind = int_to_arg_kind[given_arg.kind];
-          const arg_i_at_func_def = given_arg["name"] ? callee.arg_names.indexOf(given_arg.name) : arg_i
-          const arg_val_code = cm.getRange(item_to_start_pos(given_arg), item_to_end_pos(given_arg))
-          given_args2.push({ name: given_arg.name, kind: arg_kind, code: arg_val_code, type: callee.arg_types[arg_i_at_func_def] })
-        })
-
-        // console.log(arg_defaults.map(({name, code}) => `${name}=${code}`).join(", "))
-
-        let callee_code = cm.getRange(item_to_start_pos(callee), item_to_end_pos(callee))
-
-        const widget = document.createElement("div")
-        widget.style.display = "inline-block"
-        widget.style.border = "solid gray 1px"
-
-        const [given_positional_args, given_keyword_args] = given_args2.partition(arg => !arg.name)
-
-        const missing_positional_args =
-          arg_defaults.
-            slice(given_positional_args.length).
-            takeWhile(arg => arg.kind === "ARG_POS")
-
-        const missing_keyword_args =
-          arg_defaults.
-            slice(given_positional_args.length).
-            slice(missing_positional_args.length).
-            filter(arg => !given_keyword_args.some(given_arg => given_arg.name === arg.name)).
-            filter(arg => arg.kind !== "ARG_STAR2") // ignore **kwargs
-
-        let callee_el = document.createElement('span')
-        callee_el.innerText = callee_code
-        widget.appendChild(callee_el)
-
-        let args_el = document.createElement('span')
-        try {
-          args_el.contentEditable = "plaintext-only"
-        } catch (_) {
-          args_el.contentEditable = true // Firefox
-        }
-
-        let arg_els = []
-
-        arg_els.push(...given_positional_args.map(arg => make_arg_el(widget, arg, { positional: true })));
-
-        let missing_positional_arg_els = missing_positional_args.map(arg => make_arg_el(widget, arg, { positional: true }));
-
-        arg_els.push(make_ellipses_el(widget, missing_positional_arg_els))
-
-        arg_els.push(...given_keyword_args.map(arg => make_arg_el(widget, arg)));
-
-        let missing_keyword_arg_els = missing_keyword_args.map(arg => make_arg_el(widget, arg));
-
-        arg_els.push(make_ellipses_el(widget, missing_keyword_arg_els))
-
-        arg_els.forEach((arg_el, i) => {
-          if (i !== 0 && typeof arg_el.hidden_arg_els === "undefined") { // no comma before first arg or ellipses
-            args_el.append(", ")
-          }
-          args_el.appendChild(arg_el)
-        })
-
-        widget.append("(", args_el, ")")
-
-        const mark = cm.markText(start_pos, end_pos, {
-          replacedWith: widget,
-          inclusiveRight: true,
-          inclusiveLeft: true,
-        });
-
-        widget.sync_editor_and_output = function () {
-          const {from, to} = mark.find()
-          const code = to_code(widget)
-          // console.log(code)
-          cm.replaceRange(code, from, to)
-          snp_outer && redraw_cell(snp_outer);
-        }
-
-        widget.addEventListener("keydown", ev => {
-          ev.stopPropagation();
-        });
-
-        widget.addEventListener("keyup", ev => {
-          ev.stopPropagation();
-          widget.sync_editor_and_output() // Live update is one keypress behind if we attach this to keydown :/
-        });
-
-        widget.addEventListener("mousedown", ev => {
-          ev.stopPropagation();
-        });
-
-        // Need to let mouseup propogate so that dial drag release works even when released on the widget
-        // widget.addEventListener("mouseup", ev => {
-        //   ev.stopPropagation();
-        // });
-      });
     } else {
       console.error(msg);
       old_callback(msg);
     }
+
+    // hover_regions_svg.querySelectorAll('[data-artist]').forEach(el => {
+    //   let title = el.dataset.artist + el.dataset.names
+    //   // el.addEventListener("mouseenter", ev => {
+    //   //   el.classList.add("hovered")
+    //   //   hovered_elems.addAsSet(title)
+    //   //   console.log("mouseenter")
+    //   //   console.log(hovered_elems)
+    //   // });
+    //   // el.addEventListener("mouseleave", ev => {
+    //   //   hovered_elems.removeAsSet(title)
+    //   //   el.classList.remove("hovered")
+    //   //   console.log("mouseleave")
+    //   //   console.log(hovered_elems)
+    //   // });
+    //   el.addEventListener("click", ev => {
+    //     const first_shape = el.querySelector("[stroke-width]")
+    //     if (snp_state.selected_shape == first_shape) {
+    //       deselect_all(snp_state);
+    //     } else {
+    //       deselect_all(snp_state);
+    //       select(snp_state, first_shape);
+    //       const [top, left] = relativeTopLeft(first_shape, snp_outer);
+    //       inspector.style = `
+    //         position: absolute;
+    //         top: ${top}px;
+    //         left: ${left + first_shape.getBoundingClientRect().width}px;
+    //         background: #eee;
+    //         border: solid 1px #aaa;
+    //       `.replace(/\n\s*/g, " ")
+    //       inspector.innerHTML = "";
+    //       snp_outer.appendChild(inspector);
+    //       // console.log(el.dataset);
+    //       if (el.dataset.loc) {
+    //         const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(el.dataset.loc);
+    //         const [from, to] = [ // CodeMirror locs
+    //           {line: lineno-1,     ch: col_offset},
+    //           {line: end_lineno-1, ch: end_col_offset}
+    //         ];
+    //         const code_mirror = cell.code_mirror;
+    //         // editor.innerText = code_mirror.getRange(from, to);
+    //         // const markedCodeChunk = code_mirror.markText(from, to, {css: "border: solid red 1px"});
+    //         const linked = code_mirror.linkedDoc({from: from.line, to: to.line+1});
+    //         // console.log(linked);
+    //         const code_mirror_popup = CodeMirror(inspector);
+    //         code_mirror_popup.swapDoc(linked);
+    //         snp_state.code_mirror_popup = code_mirror_popup;
+    //         linked.setSelection(from, to);
+    //         code_mirror_popup.focus();
+    //         // console.log(code_mirror_popup);
+
+    //         inspector.addEventListener("keydown", ev => {
+    //           if (ev.ctrlKey && ev.code === "Enter") {
+    //             deselect_all(snp_state);
+    //             cell.busy = false;
+    //             cell.execute();
+    //           } else {
+    //             redraw_cell(snp_outer);
+    //           }
+    //         });
+    //       }
+    //     }
+    //     // console.log(hovered_elems)
+    //     ev.stopPropagation();
+    //   });
+    // });
   };
   IPython.notebook.kernel.execute(
     `notebook_code_through_cell = ${JSON.stringify(notebook_code_through_cell)}`,
@@ -638,11 +813,139 @@ function infer_types_up_through(cell) {
   );
 }
 
-function redraw_cell(snp_outer) {
-  const cell = snp_outer.cell;
+function widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
+  let widgets = []
+
+  cm.getAllMarks().forEach(mark => mark.clear())
+
+  cell_items.forEach(({ call, callee, given_args }) => {
+
+    function item_to_start_pos(item) {
+      return { line: item.loc.line - cell_lineno, ch: item.loc.column };
+    }
+    function item_to_end_pos(item) {
+      return { line: item.loc.end_line - cell_lineno, ch: item.loc.end_column };
+    }
+
+    const start_pos = item_to_start_pos(call);
+    const end_pos = item_to_end_pos(call);
+
+    let arg_defaults = [];
+
+    callee.arg_names.forEach((arg_name, arg_i) => {
+      const arg_kind = int_to_arg_kind[callee.arg_kinds[arg_i]];
+      const arg_type = callee.arg_types[arg_i];
+      const arg_default_code = (callee["definition_arguments_default_code"] || [])[arg_i] || default_code_for_type(arg_type);
+
+      arg_defaults.push({ name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type });
+    });
+
+    let given_args2 = [];
+    given_args.forEach((given_arg, arg_i) => {
+      const arg_kind = int_to_arg_kind[given_arg.kind];
+      const arg_i_at_func_def = given_arg["name"] ? callee.arg_names.indexOf(given_arg.name) : arg_i;
+      const arg_val_code = cm.getRange(item_to_start_pos(given_arg), item_to_end_pos(given_arg));
+      given_args2.push({ name: given_arg.name, kind: arg_kind, code: arg_val_code, type: callee.arg_types[arg_i_at_func_def] });
+    });
+
+    // console.log(arg_defaults.map(({name, code}) => `${name}=${code}`).join(", "))
+    let callee_code = cm.getRange(item_to_start_pos(callee), item_to_end_pos(callee));
+
+    const widget = document.createElement("div");
+    widget.style.display = "inline-block";
+    widget.style.border = "solid gray 1px";
+    widget.start_pos = start_pos
+    widget.end_pos   = end_pos
+
+    const [given_positional_args, given_keyword_args] = given_args2.partition(arg => !arg.name);
+
+    // const missing_positional_args = []
+    const missing_positional_args = arg_defaults.
+      slice(given_positional_args.length).
+      takeWhile(arg => arg.kind === "ARG_POS");
+
+    const missing_keyword_args = arg_defaults.
+      slice(given_positional_args.length).
+      slice(missing_positional_args.length).
+      filter(arg => !given_keyword_args.some(given_arg => given_arg.name === arg.name)).
+      filter(arg => arg.kind !== "ARG_STAR2"); // ignore **kwargs
+
+    let callee_el = document.createElement('span');
+    callee_el.innerText = callee_code;
+    widget.appendChild(callee_el);
+
+    let args_el = document.createElement('span');
+    try {
+      args_el.contentEditable = "plaintext-only";
+    } catch (_) {
+      args_el.contentEditable = true; // Firefox
+    }
+
+    let arg_els = [];
+
+    arg_els.push(...given_positional_args.map(arg => make_arg_el(widget, arg, { positional: true })));
+
+    let missing_positional_arg_els = missing_positional_args.map(arg => make_arg_el(widget, arg, { positional: true }));
+
+    arg_els.push(make_ellipses_el(widget, missing_positional_arg_els));
+
+    arg_els.push(...given_keyword_args.map(arg => make_arg_el(widget, arg)));
+
+    let missing_keyword_arg_els = missing_keyword_args.map(arg => make_arg_el(widget, arg));
+
+    arg_els.push(make_ellipses_el(widget, missing_keyword_arg_els));
+
+    arg_els.forEach((arg_el, i) => {
+      if (i !== 0 && typeof arg_el.hidden_arg_els === "undefined") { // no comma before first arg or ellipses
+        args_el.append(", ");
+      }
+      args_el.appendChild(arg_el);
+    });
+
+    widget.append("(", args_el, ")");
+
+    const mark = cm.markText(start_pos, end_pos, {
+      // replacedWith: widget,
+      inclusiveRight: true,
+      inclusiveLeft: true,
+    });
+
+    widget.sync_editor_and_output = function () {
+      const { from, to } = mark.find();
+      const code = to_code(widget);
+      // console.log(code)
+      cm.replaceRange(code, from, to);
+      snp_state && redraw_cell(snp_state);
+    };
+
+    widget.addEventListener("keydown", ev => {
+      ev.stopPropagation();
+      if (ev.ctrlKey && ev.code === "Enter") {
+        deselect_all(snp_state);
+        snp_state.cell.busy = false;
+        snp_state.cell.execute();
+      }
+    });
+
+    widget.addEventListener("keyup", ev => {
+      ev.stopPropagation();
+      widget.sync_editor_and_output(); // Live update is one keypress behind if we attach this to keydown :/
+    });
+
+    widget.addEventListener("mousedown", ev => {
+      ev.stopPropagation();
+    });
+
+    widgets.push(widget)
+  });
+
+  return widgets
+}
+
+function redraw_cell(snp_state) {
+  const { cell, img } = snp_state
   if (cell.busy) { return; }
   cell.busy = true;
-  const img = snp_outer.img;
   const codeExecuting = cell.get_text();
   console.log(`Executing: ${codeExecuting}`)
   // Hacktastic way to get live feedback
@@ -657,8 +960,8 @@ function redraw_cell(snp_outer) {
       // Replace hover regions
       let temp_el = document.createElement("div")
       temp_el.innerHTML = msg.content.data["image/svg+xml"]
-      snp_outer.querySelector("svg").remove()
-      snp_outer.appendChild(temp_el.children[0])
+      snp_state.hover_regions_svg().remove()
+      img.after(temp_el.children[0])
       // Replace background image
       img.src = "data:image/png;base64," + msg.content.data["image/png"]; // This also triggers img.onload which calls attach_snp and reattaches all of our events!
     } else {
@@ -672,9 +975,11 @@ function redraw_cell(snp_outer) {
     }
     if (codeExecuting != cell.get_text()) {
       cell.busy = false;
-      redraw_cell(snp_outer);
+      redraw_cell(snp_state);
     } else {
       cell.busy = false;
+      // START HERE: need to intelligently re-attach events to the SVG somehow
+      infer_types_and_attach_widgets(snp_state);
     }
   };
   cell.kernel.execute(codeExecuting, callbacks, {silent: false, store_history: true, stop_on_error: true});
@@ -682,11 +987,11 @@ function redraw_cell(snp_outer) {
 
 
 // <div class="snp_outer">
-// <img src='{}' onload="attach_snp(this)">
+// <img src='...'> <!-- the plot -->
+// <svg></svg> <!-- hover regions -->
+// <style onload="attach_snp(this.closest('.snp_outer'))"></style> <!-- Just a way to run this code once the elements exist. -->
 // </div>
-function attach_snp(img) {
-  let snp_outer = img.closest(".snp_outer");
-  snp_outer.img = img
+function attach_snp(snp_outer) {
   let cell_el = snp_outer.closest(".code_cell");
   let cell = Jupyter.notebook.get_cells().filter(cell => cell.element[0] === cell_el)[0];
   snp_outer.cell = cell
@@ -700,80 +1005,16 @@ function attach_snp(img) {
   // console.log(cell);
   let hovered_elems = [];
 
-  const inspector = document.createElement("div");
   let snp_state = {
     hovered_elems: [],
     selected_shape: undefined,
-    inspector: inspector,
+    cell: cell,
+    snp_outer: snp_outer,
+    img: snp_outer.querySelector("img"),
+    hover_regions_svg: () => snp_outer.querySelector("svg"),
+    inspector: document.createElement("div"),
     code_mirror_popup: undefined
   }
-  snp_outer.snp_state = snp_state
 
-  snp_outer.querySelectorAll('[data-artist]').forEach(el => {
-    let title = el.dataset.artist + el.dataset.names
-    // el.addEventListener("mouseenter", ev => {
-    //   el.classList.add("hovered")
-    //   hovered_elems.addAsSet(title)
-    //   console.log("mouseenter")
-    //   console.log(hovered_elems)
-    // });
-    // el.addEventListener("mouseleave", ev => {
-    //   hovered_elems.removeAsSet(title)
-    //   el.classList.remove("hovered")
-    //   console.log("mouseleave")
-    //   console.log(hovered_elems)
-    // });
-    el.addEventListener("click", ev => {
-      const first_shape = el.querySelector("[stroke-width]")
-      if (snp_state.selected_shape == first_shape) {
-        deselect_all(snp_state);
-      } else {
-        deselect_all(snp_state);
-        select(snp_state, first_shape);
-        const [top, left] = relativeTopLeft(first_shape, snp_outer);
-        inspector.style = `
-          position: absolute;
-          top: ${top}px;
-          left: ${left + first_shape.getBoundingClientRect().width}px;
-          background: #eee;
-          border: solid 1px #aaa;
-        `.replace(/\n\s*/g, " ")
-        inspector.innerHTML = "";
-        snp_outer.appendChild(inspector);
-        // console.log(el.dataset);
-        if (el.dataset.loc) {
-          const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(el.dataset.loc);
-          const [from, to] = [ // CodeMirror locs
-            {line: lineno-1,     ch: col_offset},
-            {line: end_lineno-1, ch: end_col_offset}
-          ];
-          const code_mirror = cell.code_mirror;
-          // editor.innerText = code_mirror.getRange(from, to);
-          // const markedCodeChunk = code_mirror.markText(from, to, {css: "border: solid red 1px"});
-          const linked = code_mirror.linkedDoc({from: from.line, to: to.line+1});
-          // console.log(linked);
-          const code_mirror_popup = CodeMirror(inspector);
-          code_mirror_popup.swapDoc(linked);
-          snp_state.code_mirror_popup = code_mirror_popup;
-          linked.setSelection(from, to);
-          code_mirror_popup.focus();
-          // console.log(code_mirror_popup);
-
-          // infer_types_up_through(cell);
-
-          inspector.addEventListener("keydown", ev => {
-            if (ev.ctrlKey && ev.code === "Enter") {
-              deselect_all(snp_state);
-              cell.busy = false;
-              cell.execute();
-            } else {
-              redraw_cell(snp_outer);
-            }
-          });
-        }
-      }
-      // console.log(hovered_elems)
-      ev.stopPropagation();
-    });
-  });
+  infer_types_and_attach_widgets(snp_state)
 }

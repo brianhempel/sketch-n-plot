@@ -292,8 +292,9 @@ class SNP():
               stroke-width: 3.0;
             }}
             </style>
-            <img style="margin: 0; border: solid 1px black;" src='{data_url}' onload="attach_snp(this)">
-            {self._repr_svg_()}
+            <img style="margin: 0; border: solid 1px black;" src='{data_url}'> <!-- the plot -->
+            {self._repr_svg_()} <!-- hover regions -->
+            <style onload="attach_snp(this.closest('.snp_outer'))"></style> <!-- Just a way to run this code once the elements exist. -->
             </div>
         """
         # return "<b id='asdf'>bold</b><script>console.log(IPython.notebook.notebook_name); console.log(Jupyter.notebook.get_cells()); document.querySelector('#asdf').innerHTML = '' + Jupyter.notebook.get_cells();</script>"
