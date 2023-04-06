@@ -104,14 +104,15 @@ Array.prototype.takeWhile = function(predicate) {
 
 
 // global, for debugging only
-window.last_selected_shape = undefined
+// window.last_selected_shape = undefined
 
 function select(snp_state, shape) {
-  window.last_selected_shape = shape
-  console.log(window.last_selected_shape)
+  // window.last_selected_shape = shape
+  // console.log(window.last_selected_shape)
   snp_state.selected_shape = shape
   shape.dataset.oldStrokeWidth = shape.getAttribute("stroke-width")
   shape.setAttribute("stroke-width", "3.0")
+  place_inspector(snp_state)
 }
 
 function deselect_all(snp_state) {
@@ -285,7 +286,10 @@ function arg_to_widget(root_widget, code, type) {
       //   ]
       // },
       let select = document.createElement("select")
-      select.innerHTML = items.map(type2 => "<option>" + JSON.stringify(type2["value"]) + "</option>").join("")
+      select.innerHTML = items.map(type2 => {
+        let isSelected = JSON.stringify(type2["value"]) === code;
+        return `<option${isSelected ? " selected": ""}>${JSON.stringify(type2["value"])}</option>`;
+      }).join("")
       select.addEventListener("click", ev => { ev.stopPropagation() });
       select.addEventListener("change", ev => { root_widget.sync_editor_and_output() });
       select.to_code = function() { return this.value; };
@@ -715,14 +719,6 @@ function infer_types_and_attach_widgets(snp_state) {
             } else {
               deselect_all(snp_state);
               select(snp_state, first_shape);
-              const [top, left] = relativeTopLeft(first_shape, snp_outer);
-              inspector.style = `
-                position: absolute;
-                top: ${top}px;
-                left: ${left + first_shape.getBoundingClientRect().width}px;
-                background: #eee;
-                border: solid 1px #aaa;
-              `.replace(/\n\s*/g, " ")
               inspector.innerHTML = "";
               snp_outer.appendChild(inspector);
               inspector.appendChild(widget);
@@ -813,10 +809,21 @@ function infer_types_and_attach_widgets(snp_state) {
   );
 }
 
+function place_inspector(snp_state) {
+  const shape = snp_state.selected_shape;
+  const [max_width, max_height] = [snp_state.img.getBoundingClientRect().width, snp_state.img.getBoundingClientRect().height];
+  const [top, left] = relativeTopLeft(shape, snp_state.snp_outer);
+  snp_state.inspector.style = `
+                position: absolute;
+                top: ${Math.min(top, max_height)}px;
+                left: ${Math.min(left + shape.getBoundingClientRect().width, max_width)}px;
+                background: #eee;
+                border: solid 1px #aaa;
+              `.replace(/\n\s*/g, " ");
+}
+
 function widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
   let widgets = []
-
-  cm.getAllMarks().forEach(mark => mark.clear())
 
   cell_items.forEach(({ call, callee, given_args }) => {
 
@@ -924,6 +931,7 @@ function widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
         deselect_all(snp_state);
         snp_state.cell.busy = false;
         snp_state.cell.execute();
+        cm.getAllMarks().forEach(mark => mark.clear());
       }
     });
 
@@ -942,6 +950,47 @@ function widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
   return widgets
 }
 
+// returns undefined or an array
+function tree_path(root, target) {
+  if (root === target) {
+    return []
+  }
+  for (let i = 0; i < root.children.length; i++) {
+    let deeper_path = tree_path(root.children[i], target);
+    if (deeper_path !== undefined) {
+      return [i].concat(deeper_path)
+    }
+  }
+  return undefined;
+}
+
+function el_by_path(root, path) {
+  if (path.length === 0) {
+    return root
+  }
+  const child = root.children[path[0]]
+  return child && el_by_path(child, path.slice(1))
+}
+
+function replace_hover_regions(snp_state, new_svg_str) {
+  const old_path = snp_state.selected_shape && tree_path(snp_state.hover_regions_svg(), snp_state.selected_shape)
+
+  let temp_el = document.createElement("div")
+  temp_el.innerHTML = new_svg_str
+  snp_state.hover_regions_svg().remove()
+  snp_state.img.after(temp_el.children[0])
+
+  // Now, transfer the selection and move the inspector.
+  //
+  // Selection preservation is non-trivial when the number of items changes.
+  // In Sketch-n-Sketch, we simply used the linear shape number in the output.
+  // Let's use the tree path, for now, which should be slightly more robust.
+  if (old_path) {
+    const new_selected_shape = el_by_path(snp_state.hover_regions_svg(), old_path)
+    new_selected_shape && select(snp_state, new_selected_shape)
+  }
+}
+
 function redraw_cell(snp_state) {
   const { cell, img } = snp_state
   if (cell.busy) { return; }
@@ -954,14 +1003,6 @@ function redraw_cell(snp_state) {
   callbacks.iopub.output = function(msg) {
     if (msg.header.msg_type === "execute_result" && msg.content.data["image/png"]) {
       // cell.clear_output();
-      // The hover regions:
-
-      // console.log(msg.content.data["image/svg+xml"])
-      // Replace hover regions
-      let temp_el = document.createElement("div")
-      temp_el.innerHTML = msg.content.data["image/svg+xml"]
-      snp_state.hover_regions_svg().remove()
-      img.after(temp_el.children[0])
       // Replace background image
       img.src = "data:image/png;base64," + msg.content.data["image/png"]; // This also triggers img.onload which calls attach_snp and reattaches all of our events!
     } else {
@@ -979,6 +1020,12 @@ function redraw_cell(snp_state) {
     } else {
       cell.busy = false;
       // START HERE: need to intelligently re-attach events to the SVG somehow
+      // Replace hover regions:
+      // console.log(msg.content.data["image/svg+xml"])
+      // Replace hover regions
+      if (msg.header.msg_type === "execute_result" && msg.content.data["image/svg+xml"]) {
+        replace_hover_regions(snp_state, msg.content.data["image/svg+xml"])
+      }
       infer_types_and_attach_widgets(snp_state);
     }
   };
