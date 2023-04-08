@@ -12,7 +12,41 @@ IPython.get_ipython().kernel.shell.ast_transformers = []
 
 trivial_names = set(dir(object()))
 
-def tag_with_paths_deep(artist, path_str):
+
+def all_names(type_node):
+   names = dict()
+   for superclass in type_node.direct_base_classes():
+      names.update(all_names(superclass))
+   names.update(type_node.names)
+   return names
+
+def tag_with_paths_deep(artist, path_str, type_graph):
+
+
+  # START HERE
+  # seem to be grabbing types correctly. NOW WHAT lol
+  if not hasattr(artist, "_inferred_type"):
+    thing_type_node = type_graph[artist.__class__.__module__].tree
+    # print(artist.__class__.__module__)
+    for class_name in artist.__class__.__qualname__.split("."): # Handle inner nested classes correctly.
+      if class_name in thing_type_node.names:
+        thing_type_node = thing_type_node.names[class_name].node
+      else:
+        thing_type_node = None
+        print(artist.__class__.__module__, artist.__class__.__qualname__, "not found")
+        break
+
+    if thing_type_node is not None:
+      names = list(all_names(thing_type_node).keys())
+      try:
+        artist._inferred_type = names
+        # print(entry)
+      except:
+        print(path_str)
+        pass # can't set new attrs on primitives
+
+    # print(thing.names)
+
   if hasattr(artist, "_snp_names"):
     if path_str not in artist._snp_names:
       artist._snp_names.add(path_str)
@@ -22,23 +56,26 @@ def tag_with_paths_deep(artist, path_str):
       artist._snp_names = {path_str}
       # print(entry)
     except:
+      print(path_str)
       pass # can't set new attrs on primitives
 
   # out += textbox("_suptitle", artist._suptitle)
   children = artist.get_children()
 
-  for name in dir(artist):
-    # if not name.startswith("_"):
-    with mpl._api.deprecation.suppress_matplotlib_deprecation_warning():
-      value = getattr(artist, name)
-    if not callable(value) and name not in trivial_names:
-      if isinstance(value, list):
-        for i, item in enumerate(value):
-          if item in children:
-            tag_with_paths_deep(item, path_str + "." + name + "[" + str(i) + "]")
-      else:
-        if value in children:
-          tag_with_paths_deep(value, path_str + "." + name)
+  with mpl._api.deprecation.suppress_matplotlib_deprecation_warning():
+    for name in dir(artist):
+      # print(path_str, name)
+      # if not name.startswith("_"):
+      if name not in trivial_names:
+        value = getattr(artist, name)
+        if not callable(value):
+          if isinstance(value, list):
+            for i, item in enumerate(value):
+              if item in children:
+                tag_with_paths_deep(item, path_str + "." + name + "[" + str(i) + "]", type_graph)
+          else:
+            if value in children:
+              tag_with_paths_deep(value, path_str + "." + name, type_graph)
 
 def flatten(lists):
     return sum(lists, []) # https://stackoverflow.com/a/952946
@@ -221,9 +258,18 @@ def region_to_svg_g(artist_geom_children):
     geom_svg = re.sub(r'stroke-width="[^"]*"', 'stroke-width="0.25"', geom_svg)
     # geom_svg = re.sub(r'\A(<\w+)', f'\\1 data-object="{str(artist)}"', geom_svg)
     child_svgs_str = "\n".join([region_to_svg_g(child) for child in children])
-    perhaps_data_names = f'data-names="{json.dumps(list(artist._snp_names))}"' if hasattr(artist, "_snp_names") else ""
+    if hasattr(artist, "_snp_names"):
+      names_str = ",".join(artist._snp_names).replace('"', "'")
+      perhaps_data_names = f'data-names="{names_str}"'
+    else:
+      perhaps_data_names = ""
+    if hasattr(artist, "_inferred_type"):
+      method_names_str = ",".join(artist._inferred_type).replace('"', "'")
+      perhaps_data_type = f'data-type="{method_names_str}"'
+    else:
+      perhaps_data_type = ""
     perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_loc)}"' if hasattr(artist, "_snp_loc") else ""
-    return f"""<g data-artist="{str(artist)}" {perhaps_data_names} {perhaps_code_loc}>
+    return f"""<g data-artist="{str(artist)}" {perhaps_data_names} {perhaps_data_type} {perhaps_code_loc}>
     {geom_svg}
     {child_svgs_str}
     </g>"""
