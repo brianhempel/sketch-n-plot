@@ -13,19 +13,20 @@ IPython.get_ipython().kernel.shell.ast_transformers = []
 trivial_names = set(dir(object()))
 
 
-def all_names(type_node):
+html_chars_re = re.compile("[&<>\"']")
+html_subs = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }
+def escape_html(string):
+  return html_chars_re.sub(lambda match: html_subs[match.group(0)], string)
+
+def full_names_dict(type_node):
    names = dict()
    for superclass in type_node.direct_base_classes():
-      names.update(all_names(superclass))
+      names.update(full_names_dict(superclass))
    names.update(type_node.names)
    return names
 
 def tag_with_paths_deep(artist, path_str, type_graph):
-
-
-  # START HERE
-  # seem to be grabbing types correctly. NOW WHAT lol
-  if not hasattr(artist, "_inferred_type"):
+  if not hasattr(artist, "_method_types"):
     thing_type_node = type_graph[artist.__class__.__module__].tree
     # print(artist.__class__.__module__)
     for class_name in artist.__class__.__qualname__.split("."): # Handle inner nested classes correctly.
@@ -37,13 +38,15 @@ def tag_with_paths_deep(artist, path_str, type_graph):
         break
 
     if thing_type_node is not None:
-      names = list(all_names(thing_type_node).keys())
-      try:
-        artist._inferred_type = names
+
+    #   callable_type_json(callee_type)
+    #   names = list(full_names_dict(thing_type_node).keys())
+    #   try:
+        artist._method_types = {name: callable_type_json(thing.type) for name, thing in full_names_dict(thing_type_node).items() if isinstance(thing.type, mypy.types.CallableType) and name not in trivial_names}
         # print(entry)
-      except:
-        print(path_str)
-        pass # can't set new attrs on primitives
+    #   except:
+        # print(path_str)
+        # pass # can't set new attrs on primitives
 
     # print(thing.names)
 
@@ -263,9 +266,10 @@ def region_to_svg_g(artist_geom_children):
       perhaps_data_names = f'data-names="{names_str}"'
     else:
       perhaps_data_names = ""
-    if hasattr(artist, "_inferred_type"):
-      method_names_str = ",".join(artist._inferred_type).replace('"', "'")
-      perhaps_data_type = f'data-type="{method_names_str}"'
+    if hasattr(artist, "_method_types"):
+      perhaps_data_type = f'data-method-types="{escape_html(json.dumps(artist._method_types))}"'
+    #   method_names_str = ",".join(artist._method_types).replace('"', "'")
+    #   perhaps_data_type = f'data-type="{method_names_str}"'
     else:
       perhaps_data_type = ""
     perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_loc)}"' if hasattr(artist, "_snp_loc") else ""
@@ -468,18 +472,38 @@ def unparse_mypy_expr(expr : mypy.nodes.Expression):
             return str(expr)
 
 
-def to_json_dict(node, type):
-    # print(type)
-    # print(type.serialize())
-    type_json_dict = type.serialize()
-    if not isinstance(type_json_dict, dict): # IDK why we sometimes get a string
-        type_json_dict = dict()
+def add_loc_json(type_json_dict, node):
     type_json_dict["loc"] = {
         "line":       node.line,
         "column":     node.column,
         "end_line":   node.end_line,
         "end_column": node.end_column,
     }
+    return type_json_dict
+
+def to_json_dict(node, type):
+    # print(type)
+    # print(type.serialize())
+    type_json_dict = type.serialize()
+    if not isinstance(type_json_dict, dict): # IDK why we sometimes get a string
+        type_json_dict = dict()
+    return add_loc_json(type_json_dict, node)
+
+callable_type_ex = None
+def callable_type_json(callable_type):
+    global callable_type_ex
+    type_json_dict = callable_type.serialize()
+    if not isinstance(type_json_dict, dict): # IDK why we sometimes get a string
+        type_json_dict = dict()
+
+    if hasattr(callable_type, "definition") and callable_type.definition and callable_type.definition.arguments:
+        type_json_dict["definition_arguments_default_code"] = [unparse_mypy_expr(arg.initializer) for arg in callable_type.definition.arguments]
+        # if callable_type.def_extras.get("first_arg") is not None:
+        #     # remove "self"
+        #     # print("removing self from", callable_type)
+        #     callable_type_ex = callable_type
+        #     type_json_dict["definition_arguments_default_code"] = type_json_dict["definition_arguments_default_code"][1:]
+
     return type_json_dict
 
 
@@ -507,12 +531,11 @@ class MyVisitor(TraverserVisitor):
                 given_arg["kind"] = kind.value
                 given_args.append(given_arg)
 
-            callee = to_json_dict(node.callee, callee_type)
-            if callee_type.definition and callee_type.definition.arguments:
-                callee["definition_arguments_default_code"] = [unparse_mypy_expr(arg.initializer) for arg in callee_type.definition.arguments]
-                if len(callee_type.arg_kinds) + 1 == len(callee_type.definition.arguments):
-                    # remove "self"
-                    callee["definition_arguments_default_code"] = callee["definition_arguments_default_code"][1:]
+            # The callee_type here is partially applied (self is already removed from the argument list).
+            # For consistency with places where where that is not the case, let us unapply it
+            callee_type_unapplied = callee_type.definition.type
+            callee = callable_type_json(callee_type_unapplied)
+            add_loc_json(callee, node.callee)
 
             self.out.append({
                 "call":       to_json_dict(node, self.types_dict.get(node)),

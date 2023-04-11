@@ -102,7 +102,6 @@ Array.prototype.takeWhile = function(predicate) {
 //   return { x: x + vec2.x, y: y + vec2.y };
 // }
 
-
 // global, for debugging only
 // window.last_selected_shape = undefined
 
@@ -458,194 +457,6 @@ function make_ellipses_el(root_widget, hidden_arg_els) {
   return ellipses_el;
 }
 
-// function infer_types_up_through_old(cell) {
-//   let code_cells = Jupyter.notebook.get_cells().filter(cell => cell.cell_type === "code");
-
-//   // limit to cells up through the given cell
-//   let code_cells_before_cell = code_cells.slice(0, code_cells.indexOf(cell));
-//   // code_cells             = code_cells.slice(0, code_cells.indexOf(cell)+1);
-
-//   function is_not_magic(code) {
-//     return !code.startsWith("%%");
-//   }
-
-//   let notebook_code_before_cell =
-//     code_cells_before_cell.
-//         // takeWhile(cell => cell.input_prompt_number !== "*").
-//         map(cell => cell.get_text()).
-//         filter(is_not_magic).
-//         // map((code, i) => `### Cell ${i} ###\n${code}`).
-//         join("\n");
-
-//   let notebook_code_through_cell = `${notebook_code_before_cell}\n${cell.get_text()}`;
-
-//   // console.log(notebook_code_through_cell);
-
-//   let cell_lineno = notebook_code_before_cell.split("\n").length + 1
-
-//   console.log({cell_lineno: cell_lineno})
-
-//   // console.log(cells);
-//   // console.log(cells.map(cell => cell.input_prompt_number));
-//   // console.log(notebook_code_up_through_current_cell)
-//   const callbacks = cell.get_callbacks();
-//   const just_log  = { shell: { reply: console.log }, iopub: { output: console.log }};
-//   let old_callback = callbacks.shell.reply;
-//   callbacks.shell.reply = (msg) => {
-//     if (msg.msg_type == "execute_reply" && msg.content.status == "ok" &&msg.content.user_expressions.inferred.status == "ok") {
-//       console.log(msg.content.user_expressions.inferred)
-//       const items = msg.content.user_expressions.inferred.data["application/json"];
-//       const cell_items = items.filter(call_info => call_info.callee.loc.line >= cell_lineno);
-//       console.log(cell_items);
-//       // console.log(JSON.stringify(cell_items));
-//       let cm = cell.code_mirror;
-
-//       let snp_outer = cell.element[0].querySelector(".snp_outer");
-
-//       // for decoding the "arg_kind" numeric property
-//       const int_to_arg_kind = [
-//         "ARG_POS",       // Positional argument
-//         "ARG_OPT",       // Positional, optional argument (functions only, not calls)
-//         "ARG_STAR",      // *arg argument
-//         "ARG_NAMED",     // Keyword argument x=y in call, or keyword-only function arg
-//         "ARG_STAR2",     // **arg argument
-//         "ARG_NAMED_OPT", // In an argument list, keyword-only and also optional
-//       ]
-
-//       cm.getAllMarks().forEach(mark => mark.clear())
-
-//       cell_items.forEach(({call, callee, given_args}) => {
-
-//         function item_to_start_pos(item) {
-//           return { line: item.loc.line     - cell_lineno, ch: item.loc.column     }
-//         }
-//         function item_to_end_pos(item) {
-//           return { line: item.loc.end_line - cell_lineno, ch: item.loc.end_column }
-//         }
-
-//         const start_pos = item_to_start_pos(call)
-//         const end_pos   = item_to_end_pos(call)
-
-//         let arg_defaults = []
-
-//         callee.arg_names.forEach((arg_name, arg_i) => {
-//           const arg_kind = int_to_arg_kind[callee.arg_kinds[arg_i]];
-//           const arg_type = callee.arg_types[arg_i];
-//           const arg_default_code = (callee["definition_arguments_default_code"] || [])[arg_i] || default_code_for_type(arg_type)
-
-//           arg_defaults.push({ name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type })
-//         });
-
-//         let given_args2 = []
-//         given_args.forEach((given_arg, arg_i) => {
-//           const arg_kind = int_to_arg_kind[given_arg.kind];
-//           const arg_i_at_func_def = given_arg["name"] ? callee.arg_names.indexOf(given_arg.name) : arg_i
-//           const arg_val_code = cm.getRange(item_to_start_pos(given_arg), item_to_end_pos(given_arg))
-//           given_args2.push({ name: given_arg.name, kind: arg_kind, code: arg_val_code, type: callee.arg_types[arg_i_at_func_def] })
-//         })
-
-//         // console.log(arg_defaults.map(({name, code}) => `${name}=${code}`).join(", "))
-
-//         let callee_code = cm.getRange(item_to_start_pos(callee), item_to_end_pos(callee))
-
-//         const widget = document.createElement("div")
-//         widget.style.display = "inline-block"
-//         widget.style.border = "solid gray 1px"
-
-//         const [given_positional_args, given_keyword_args] = given_args2.partition(arg => !arg.name)
-
-//         const missing_positional_args =
-//           arg_defaults.
-//             slice(given_positional_args.length).
-//             takeWhile(arg => arg.kind === "ARG_POS")
-
-//         const missing_keyword_args =
-//           arg_defaults.
-//             slice(given_positional_args.length).
-//             slice(missing_positional_args.length).
-//             filter(arg => !given_keyword_args.some(given_arg => given_arg.name === arg.name)).
-//             filter(arg => arg.kind !== "ARG_STAR2") // ignore **kwargs
-
-//         let callee_el = document.createElement('span')
-//         callee_el.innerText = callee_code
-//         widget.appendChild(callee_el)
-
-//         let args_el = document.createElement('span')
-//         try {
-//           args_el.contentEditable = "plaintext-only"
-//         } catch (_) {
-//           args_el.contentEditable = true // Firefox
-//         }
-
-//         let arg_els = []
-
-//         arg_els.push(...given_positional_args.map(arg => make_arg_el(widget, arg, { positional: true })));
-
-//         let missing_positional_arg_els = missing_positional_args.map(arg => make_arg_el(widget, arg, { positional: true }));
-
-//         arg_els.push(make_ellipses_el(widget, missing_positional_arg_els))
-
-//         arg_els.push(...given_keyword_args.map(arg => make_arg_el(widget, arg)));
-
-//         let missing_keyword_arg_els = missing_keyword_args.map(arg => make_arg_el(widget, arg));
-
-//         arg_els.push(make_ellipses_el(widget, missing_keyword_arg_els))
-
-//         arg_els.forEach((arg_el, i) => {
-//           if (i !== 0 && typeof arg_el.hidden_arg_els === "undefined") { // no comma before first arg or ellipses
-//             args_el.append(", ")
-//           }
-//           args_el.appendChild(arg_el)
-//         })
-
-//         widget.append("(", args_el, ")")
-
-//         const mark = cm.markText(start_pos, end_pos, {
-//           replacedWith: widget,
-//           inclusiveRight: true,
-//           inclusiveLeft: true,
-//         });
-
-//         widget.sync_editor_and_output = function () {
-//           const {from, to} = mark.find()
-//           const code = to_code(widget)
-//           // console.log(code)
-//           cm.replaceRange(code, from, to)
-//           snp_outer && redraw_cell(snp_outer);
-//         }
-
-//         widget.addEventListener("keydown", ev => {
-//           ev.stopPropagation();
-//         });
-
-//         widget.addEventListener("keyup", ev => {
-//           ev.stopPropagation();
-//           widget.sync_editor_and_output() // Live update is one keypress behind if we attach this to keydown :/
-//         });
-
-//         widget.addEventListener("mousedown", ev => {
-//           ev.stopPropagation();
-//         });
-
-//         // Need to let mouseup propogate so that dial drag release works even when released on the widget
-//         // widget.addEventListener("mouseup", ev => {
-//         //   ev.stopPropagation();
-//         // });
-//       });
-//     } else {
-//       console.error(msg);
-//       old_callback(msg);
-//     }
-//   };
-//   IPython.notebook.kernel.execute(
-//     `notebook_code_through_cell = ${JSON.stringify(notebook_code_through_cell)}`,
-//     callbacks, {
-//       silent: false,
-//       user_expressions: { "inferred": "JsonDict(do_inference(notebook_code_through_cell))" }
-//     }
-//   );
-// }
-
 // for decoding the "arg_kind" numeric property
 int_to_arg_kind = [
   "ARG_POS",       // Positional argument
@@ -700,7 +511,7 @@ function infer_types_and_attach_widgets(snp_state) {
 
       let widgets = widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state);
 
-      console.log(widgets)
+      console.log("widgets", widgets)
 
       snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
         const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
@@ -723,11 +534,39 @@ function infer_types_and_attach_widgets(snp_state) {
               snp_outer.appendChild(inspector);
               inspector.appendChild(widget);
             }
-            // console.log(hovered_elems)
             ev.stopPropagation();
           });
         }
-      })
+      });
+
+      snp_state.hover_regions_svg().querySelectorAll('[data-method-types]').forEach(hover_region => {
+        if (hover_region.dataset.loc) {
+          return;
+        }
+
+        hover_region.addEventListener("click", ev => {
+          const first_shape = hover_region.querySelector("[stroke-width]")
+          if (snp_state.selected_shape == first_shape) {
+            deselect_all(snp_state);
+          } else {
+            deselect_all(snp_state);
+            select(snp_state, first_shape);
+            inspector.innerHTML = "";
+            snp_outer.appendChild(inspector);
+            const method_types = JSON.parse(hover_region.dataset.methodTypes);
+            let inspector_html = `<div>${hover_region.dataset.names}</div>`
+            for (const method_name in method_types) {
+              const method_type = method_types[method_name]
+              const arg_defaults = arg_defaults_from_callee_type(method_type);
+              const str = method_name + "(" + arg_defaults.map(({ name, kind, code, type }) => kind === "ARG_POS" ? code : name + "=" + code).join(", ") + ")"
+              inspector_html += `<div>${str}</div>`
+            }
+            inspector.innerHTML = inspector_html
+          }
+          // console.log(hovered_elems)
+          ev.stopPropagation();
+        });
+      });
 
     } else {
       console.error(msg);
@@ -822,6 +661,16 @@ function place_inspector(snp_state) {
               `.replace(/\n\s*/g, " ");
 }
 
+function arg_defaults_from_callee_type(callee) {
+  return callee.arg_names.map((arg_name, arg_i) => {
+    const arg_kind = int_to_arg_kind[callee.arg_kinds[arg_i]];
+    const arg_type = callee.arg_types[arg_i];
+    const arg_default_code = (callee["definition_arguments_default_code"] || [])[arg_i] || default_code_for_type(arg_type);
+
+    return { name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type };
+  });
+}
+
 function widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
   let widgets = []
 
@@ -837,15 +686,9 @@ function widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
     const start_pos = item_to_start_pos(call);
     const end_pos = item_to_end_pos(call);
 
-    let arg_defaults = [];
+    // START HERE: ignore first arg if def_extras.first_arg is defined
 
-    callee.arg_names.forEach((arg_name, arg_i) => {
-      const arg_kind = int_to_arg_kind[callee.arg_kinds[arg_i]];
-      const arg_type = callee.arg_types[arg_i];
-      const arg_default_code = (callee["definition_arguments_default_code"] || [])[arg_i] || default_code_for_type(arg_type);
-
-      arg_defaults.push({ name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type });
-    });
+    let arg_defaults = arg_defaults_from_callee_type(callee);
 
     let given_args2 = [];
     given_args.forEach((given_arg, arg_i) => {
