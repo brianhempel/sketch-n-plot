@@ -19,30 +19,36 @@ def escape_html(string):
   return html_chars_re.sub(lambda match: html_subs[match.group(0)], string)
 
 def full_names_dict(type_node):
-   names = dict()
-   for superclass in type_node.direct_base_classes():
-      names.update(full_names_dict(superclass))
-   names.update(type_node.names)
-   return names
+    names = dict()
+    for superclass in type_node.direct_base_classes():
+        names.update(full_names_dict(superclass))
+    names.update(type_node.names)
+    return names
+
+def object_type(obj, type_graph):
+    thing_type_node = type_graph[obj.__class__.__module__].tree
+    # print(obj.__class__.__module__)
+    for class_name in obj.__class__.__qualname__.split("."): # Handle inner nested classes correctly.
+        if class_name in thing_type_node.names:
+            thing_type_node = thing_type_node.names[class_name].node
+        else:
+            thing_type_node = None
+            print(obj.__class__.__module__, obj.__class__.__qualname__, "not found")
+            break
+
+    return thing_type_node
+
 
 def tag_with_paths_deep(artist, path_str, type_graph):
   if not hasattr(artist, "_method_types"):
-    thing_type_node = type_graph[artist.__class__.__module__].tree
-    # print(artist.__class__.__module__)
-    for class_name in artist.__class__.__qualname__.split("."): # Handle inner nested classes correctly.
-      if class_name in thing_type_node.names:
-        thing_type_node = thing_type_node.names[class_name].node
-      else:
-        thing_type_node = None
-        print(artist.__class__.__module__, artist.__class__.__qualname__, "not found")
-        break
+    artist_type_node = object_type(artist, type_graph)
 
-    if thing_type_node is not None:
+    if artist_type_node is not None:
 
     #   callable_type_json(callee_type)
-    #   names = list(full_names_dict(thing_type_node).keys())
+    #   names = list(full_names_dict(artist_type_node).keys())
     #   try:
-        artist._method_types = {name: callable_type_json(thing.type) for name, thing in full_names_dict(thing_type_node).items() if isinstance(thing.type, mypy.types.CallableType) and name not in trivial_names}
+        artist._method_types = {name: callable_type_json(thing.type) for name, thing in full_names_dict(artist_type_node).items() if isinstance(thing.type, mypy.types.CallableType) and name not in trivial_names}
         # print(entry)
     #   except:
         # print(path_str)
@@ -110,6 +116,96 @@ def total_bbox(geometries):
 def flatten_regions(artist_geom_children):
   artist, geom, children = artist_geom_children
   return [(artist, geom)] + flatten([flatten_regions(child) for child in children])
+
+# returns list of (obj_id, shapley.Geometry)
+def flatten_regions2(objid_methods_geom_children):
+  obj_id, methods, geom, children = objid_methods_geom_children
+  return [(obj_id, geom)] + flatten([flatten_regions2(child) for child in children])
+
+def method_associations(artist):
+    match artist:
+        case mpl.axes.Axes() as ax:
+            return [(ax.title, "set_title")]
+        case mpl.axis.Axis() as axis:
+            return [(axis.label, "set_label_text")]
+        case _:
+            return []
+
+# START HERE: use regions2
+
+# Make sure to render before calling this.
+# returns (artist, list of (artist, method_name), shapley.Geometry, children)
+def regions2(artist : mpl.artist.Artist):
+  child_pad = 3
+
+  if "get_children" in dir(artist):
+    children = artist.get_children()
+  else:
+    children = []
+
+  match artist:
+    case mpl.axis.Tick():
+      # Remove invisible tick text (i.e. the rarely used label2, which is mispositioned when not actively used.)
+      children = [child for child in children if child.get_visible()]
+
+  child_regions      = remove_nones([regions2(child) for child in children])
+  child_regions_flat = flatten([flatten_regions2(child_region) for child_region in child_regions])
+  child_geoms        = [geom for _, geom in child_regions_flat]
+
+  # print(artist)
+  match artist:
+    case mpl.text.Text() as text:
+      # based on mpl text.py contains
+      bbox = mpl.text.Text.get_window_extent(text)
+      my_geom = mpl_bbox_to_shapely(bbox)
+    case mpl.patches.Rectangle() as rect:
+      my_geom = mpl_bbox_to_shapely(rect.get_bbox())
+    case mpl.lines.Line2D() as line:
+      # based on mpl lines.py contains
+      if line._xy is None or len(line._xy) == 0:
+        # print("line has no path: " + str(line))
+        my_geom = None
+      else:
+        transformed_path = line._get_transformed_path()
+        path = transformed_path.get_fully_transformed_path()
+        if len(path.vertices) >= 2:
+          line_string = shapely.LineString(path.vertices)
+          my_geom = shapely.buffer(line_string, child_pad + line.get_linewidth(), quad_segs=1, cap_style='square', join_style='mitre') # expand outward
+        elif len(path.vertices) == 1:
+          d = 10 + line.get_linewidth()
+          my_geom = shapely.box(
+            path.vertices[0,0] - d,
+            path.vertices[0,1] - d,
+            path.vertices[0,0] + d,
+            path.vertices[0,1] + d,
+          )
+        else:
+          print("a;sdkjf;laskdj;lsaknvad")
+    case mpl.axes._subplots.SubplotBase():
+      my_geom = None
+    case _:
+      # print("regions(): unknown artist: " + str(artist))
+      my_geom = None
+
+  if my_geom is None and len(child_geoms) == 0:
+    return None
+  elif my_geom is None:
+    my_geom = total_bbox(child_geoms)
+  else:
+    my_geom = shapely.union_all([my_geom, total_bbox(child_geoms)])
+
+  my_geom = shapely.buffer(my_geom, child_pad, quad_segs = 1, cap_style='square', join_style='mitre') # expand by 10px
+
+  my_methods_to_place_on_children = method_associations(artist)
+
+  def put_methods_on_child(child_region):
+    child_artist, methods_to_show_on_child, child_geom, grandchild_regions = child_region
+    methods_for_child = [(artist, method_name) for desired_graphical_target, method_name in my_methods_to_place_on_children if desired_graphical_target == child_artist]
+    return (child_artist, methods_to_show_on_child + methods_for_child, child_geom, grandchild_regions)
+
+  child_regions = [put_methods_on_child(child_region) for child_region in child_regions]
+
+  return (artist, [], my_geom, child_regions)
 
 # Make sure to render before calling this.
 # returns (artist, shapley.Geometry, children)
@@ -252,6 +348,46 @@ def regions(artist : mpl.artist.Artist):
 # setattr(mpl.artist.Artist, "snp_inspector_html", snp_inspector_html)
 # setattr(matplotlib.figure.FigureBase, "snp_inspector_html", figure_snp_inspector_html)
 
+def method_type(receiver, method_name, type_graph):
+    receiver_type_node = object_type(receiver, type_graph)
+
+    if receiver_type_node is not None:
+        node = full_names_dict(receiver_type_node).get(method_name)
+        if node is not None:
+           return node.type
+
+    return None
+
+def method_type_json(receiver, method_name, type_graph):
+   typ = method_type(receiver, method_name, type_graph)
+   return typ and callable_type_json(typ)
+
+# # Preserve heirarchical structure so that JS mouseenter events work as intended
+def region2_to_svg_g(artist_methods_geom_children, object_names, type_graph):
+    artist, methods, geom, children = artist_methods_geom_children
+    geom_svg = geom.svg()
+    geom_svg = re.sub(r'fill="[^"]*"', 'fill="transparent"', geom_svg) # can't be "none", otherwise no mouse events are triggered inside the region
+    geom_svg = re.sub(r'stroke-width="[^"]*"', 'stroke-width="0.25"', geom_svg)
+    # geom_svg = re.sub(r'\A(<\w+)', f'\\1 data-object="{str(artist)}"', geom_svg)
+    child_svgs_str = "\n".join([region2_to_svg_g(child, object_names, type_graph) for child in children])
+    # if hasattr(artist, "_snp_names"):
+    #   names_str = ",".join(artist._snp_names).replace('"', "'")
+    #   perhaps_data_names = f'data-names="{names_str}"'
+    # else:
+    #   perhaps_data_names = ""
+    # if hasattr(artist, "_method_types"):
+    #   perhaps_data_type = f'data-method-types="{escape_html(json.dumps(artist._method_types))}"'
+    # #   method_names_str = ",".join(artist._method_types).replace('"', "'")
+    # #   perhaps_data_type = f'data-type="{method_names_str}"'
+    # else:
+    #   perhaps_data_type = ""
+    # perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_loc)}"' if hasattr(artist, "_snp_loc") else ""
+    data_methods = json.dumps([{"receiver_id": id(receiver), "receiver_names": list(object_names.get(id(receiver), {})), "method_name": method_name, "method_type": method_type_json(receiver, method_name, type_graph)} for receiver, method_name in methods])
+    perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_loc)}"' if hasattr(artist, "_snp_loc") else ""
+    return f"""<g data-artist="{str(artist)}" data-artist-id="{id(artist)}" data-artist-names="{",".join(object_names.get(id(artist), {}))}" data-new-methods="{escape_html(data_methods)}" {perhaps_code_loc}>
+    {geom_svg}
+    {child_svgs_str}
+    </g>"""
 
 # # Preserve heirarchical structure so that JS mouseenter events work as intended
 def region_to_svg_g(artist_geom_children):
@@ -279,11 +415,29 @@ def region_to_svg_g(artist_geom_children):
     </g>"""
 
 
+def object_names(locals, user_names=None):
+    if user_names is None:
+        user_names = set(locals.keys())
+    out = {}
+    def add(obj, name):
+        key = id(obj)
+        out[key] = out.get(key, set()).union({name})
+
+    for name, value in [(name, value) for name, value in locals.items() if name in user_names and name not in trivial_names and not callable(value)]:
+        # Only depth 1 for now
+        for prop_name in [prop_name for prop_name in dir(value) if prop_name not in trivial_names and not callable(getattr(value, prop_name))]:
+            add(getattr(value, prop_name), f'{name}.{prop_name}')
+        add(value, name)
+
+    return out
+
 class SNP():
-    def __init__(self, figure):
+    def __init__(self, figure, locals, type_graph, user_names=None):
         self.figure = figure
-        self.cached_png = None;
-        self.cached_svg_hover_regions = None;
+        self.type_graph = type_graph
+        self.object_names = object_names(locals, user_names=user_names)
+        self.cached_png = None
+        self.cached_svg_hover_regions = None
 
     def _repr_png_(self):
         if (self.cached_png == None):
@@ -310,9 +464,9 @@ class SNP():
             height_px   = bbox_inches.height * fig.get_dpi()
 
             # fig_regions = flatten_regions(regions(fig))
-            fig_regions = regions(self.figure)
+            fig_regions2 = regions2(self.figure)
 
-            svg_body = region_to_svg_g(fig_regions)
+            svg_body = region2_to_svg_g(fig_regions2, self.object_names, self.type_graph)
 
             # for artist, shape in fig_regions:
             #   shape_svg = shape.svg()
@@ -350,7 +504,26 @@ class SNP():
         # return "<b id='asdf'>bold</b><script>console.log(IPython.notebook.notebook_name); console.log(Jupyter.notebook.get_cells()); document.querySelector('#asdf').innerHTML = '' + Jupyter.notebook.get_cells();</script>"
         # return { "text/html": "<b><script>alert('hi');</script>bold</b>" }
 
-# import astor
+
+
+### Provenance Tagging ##############################
+
+# Input:
+# fig, ax = plt.subplots()
+# ax.set_title("My Plot")
+# xs = np.linspace(0, 2 * np.pi, 20)
+# ys = np.sin(xs)
+# lines = ax.plot(xs, ys)
+
+# Output:
+# (fig, ax) = tag_with_provenance(plt.subplots(), 2, 10, 2, 24)
+# tag_with_provenance(ax.set_title('My Plot'), 3, 0, 3, 23)
+# xs = tag_with_provenance(np.linspace(0, 2 * np.pi, 20), 4, 5, 4, 34)
+# ys = tag_with_provenance(np.sin(xs), 5, 5, 5, 15)
+# lines = tag_with_provenance(ax.plot(xs, ys), 6, 8, 6, 23)
+
+# tag_with_provenance() gives the returned object an `_snp_loc` attribute, which is a tuple of (lineno, col_offset, end_lineno, end_col_offset)
+
 # Thanks GPT-4, this works, apparently.
 
 class LocedTuple(tuple):
@@ -390,11 +563,10 @@ class LocedFloat(float):
 # code = \
 # """
 # fig, ax = plt.subplots()
-# # ax.set_title(label, fontdict=None, loc='center', pad=None, **kwargs)
 # ax.set_title("My Plot")
-# # xs = np.linspace(0, 2 * np.pi, 20)
-# # ys = np.sin(xs)
-# # lines = ax.plot(xs, ys)
+# xs = np.linspace(0, 2 * np.pi, 20)
+# ys = np.sin(xs)
+# lines = ax.plot(xs, ys)
 # """
 
 # print(code)
@@ -441,7 +613,7 @@ class ProvenanceTagger(ast.NodeTransformer):
 
 # print(astor.dump_tree(ast.parse(tree)))
 
-# print(ast.unparse(ProvenanceTagger().visit(tree)))
+# print(ast.unparse(ProvenanceTagger().visit(ast.parse(code))))
 
 IPython.get_ipython().kernel.shell.ast_transformers = [ProvenanceTagger()]
 

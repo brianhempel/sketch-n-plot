@@ -257,7 +257,7 @@ function to_code(node) {
   }
 }
 
-function arg_to_widget(root_widget, code, type) {
+function arg_to_widget(sync_editor_and_output, code, type) {
   console.log(code, type)
   if (type[".class"] === "UnionType") {
     const items = type["items"]
@@ -290,7 +290,7 @@ function arg_to_widget(root_widget, code, type) {
         return `<option${isSelected ? " selected": ""}>${JSON.stringify(type2["value"])}</option>`;
       }).join("")
       select.addEventListener("click", ev => { ev.stopPropagation() });
-      select.addEventListener("change", ev => { root_widget.sync_editor_and_output() });
+      select.addEventListener("change", ev => { sync_editor_and_output() });
       select.to_code = function() { return this.value; };
       return select
     } else if (items.length === 3 && items.includes("builtins.float") && literals.length === 2 && literals.every(type2 => typeof type2.value === "number")) {
@@ -312,18 +312,18 @@ function arg_to_widget(root_widget, code, type) {
       // },
       const [lo, hi] = literals.map(type2 => type2.value).sort()
       const step_per_px = [10000000000, 1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1, 0.1, 0.01, 0.001, 0.0001, 1.0e-05, 1.0e-06, 1.0e-07, 1.0e-08, 1.0e-09, 1.0e-10].find(n => (hi - lo) / n >= 30) || 0.01
-      return make_dial_and_num(root_widget, code, step_per_px)
+      return make_dial_and_num(sync_editor_and_output, code, step_per_px)
     } else {
       return document.createTextNode(code);
     }
   } else if (type === "builtins.float") {
-    return make_dial_and_num(root_widget, code, 0.01)
+    return make_dial_and_num(sync_editor_and_output, code, 0.01)
   } else {
     return document.createTextNode(code);
   }
 }
 
-function make_dial_and_num(root_widget, code, change_per_px) {
+function make_dial_and_num(sync_editor_and_output, code, change_per_px) {
   let decimal_places = Math.max(0, -Math.log(change_per_px))
   let dial_and_num = document.createElement('span');
   dial_and_num.innerHTML = dial_svg_html();
@@ -348,7 +348,7 @@ function make_dial_and_num(root_widget, code, change_per_px) {
     let stopDrag = ev => {
       document.body.removeEventListener("mousemove", moveDial);
       document.body.removeEventListener("mouseup", stopDrag);
-      root_widget.sync_editor_and_output();
+      sync_editor_and_output();
     };
     let moveDial = ev => {
       ev.preventDefault();
@@ -365,7 +365,7 @@ function make_dial_and_num(root_widget, code, change_per_px) {
       angle += mouseDelta * 0.1;
       nub.setAttribute("transform", `translate(${Math.cos(angle) * r} ${-Math.sin(angle) * r + r})`);
       // console.log(nub)
-      root_widget.sync_editor_and_output();
+      sync_editor_and_output();
     };
 
     document.body.addEventListener("mousemove", moveDial);
@@ -396,7 +396,7 @@ function siblingsBefore(node) {
 
 // arg is { name:, kind:, code:, type: }
 // options is optional, default is { positional: false }
-function make_arg_el(root_widget, arg, options) {
+function make_arg_el(sync_editor_and_output, arg, options) {
   const arg_el = document.createElement('span');
   if (arg.kind !== "ARG_POS") {
     const remove_button = document.createElement('span');
@@ -424,19 +424,19 @@ function make_arg_el(root_widget, arg, options) {
         ellipses_el.hidden_arg_els.push(arg_el)
         ellipses_el.style.display = "inline"
       }
-      root_widget.sync_editor_and_output();
+      sync_editor_and_output();
     });
     arg_el.append(remove_button)
   }
   if (options?.positional) {
-    arg_el.append(arg_to_widget(root_widget, arg.code, arg.type));
+    arg_el.append(arg_to_widget(sync_editor_and_output, arg.code, arg.type));
   } else {
-    arg_el.append(arg.name, "=", arg_to_widget(root_widget, arg.code, arg.type));
+    arg_el.append(arg.name, "=", arg_to_widget(sync_editor_and_output, arg.code, arg.type));
   }
   return arg_el;
 }
 
-function make_ellipses_el(root_widget, hidden_arg_els) {
+function make_ellipses_el(sync_editor_and_output, hidden_arg_els) {
   const ellipses_el = document.createElement('span')
   ellipses_el.hidden_arg_els = hidden_arg_els
   ellipses_el.style.cursor = "pointer";
@@ -448,7 +448,7 @@ function make_ellipses_el(root_widget, hidden_arg_els) {
     ellipses_el.before(", ", ...ellipses_el.hidden_arg_els.intersperse(", "));
     ellipses_el.hidden_arg_els = []
     ellipses_el.style.display = "none"
-    root_widget.sync_editor_and_output()
+    sync_editor_and_output()
   })
   ellipses_el.title = "Show optional args: " + hidden_arg_els.map(to_code).join(", ")
   if (hidden_arg_els.length === 0) {
@@ -539,8 +539,12 @@ function infer_types_and_attach_widgets(snp_state) {
         }
       });
 
-      snp_state.hover_regions_svg().querySelectorAll('[data-method-types]').forEach(hover_region => {
+      snp_state.hover_regions_svg().querySelectorAll('[data-new-methods]').forEach(hover_region => {
         if (hover_region.dataset.loc) {
+          return;
+        }
+        const methods = JSON.parse(hover_region.dataset.newMethods)
+        if (methods.length === 0) {
           return;
         }
 
@@ -553,15 +557,21 @@ function infer_types_and_attach_widgets(snp_state) {
             select(snp_state, first_shape);
             inspector.innerHTML = "";
             snp_outer.appendChild(inspector);
-            const method_types = JSON.parse(hover_region.dataset.methodTypes);
-            let inspector_html = `<div>${hover_region.dataset.names}</div>`
-            for (const method_name in method_types) {
-              const method_type = method_types[method_name]
-              const arg_defaults = arg_defaults_from_callee_type(method_type);
-              const str = method_name + "(" + arg_defaults.map(({ name, kind, code, type }) => kind === "ARG_POS" ? code : name + "=" + code).join(", ") + ")"
-              inspector_html += `<div>${str}</div>`
+            // const method_types = JSON.parse(hover_region.dataset.methodTypes);
+            let inspector_html = `<div>${hover_region.dataset.artistNames}</div>`
+            let cm = cell.code_mirror
+            for (const method of methods) {
+              let method_type = method.method_type
+              let arg_defaults = arg_defaults_from_callee_type(method_type);
+              // let str = method.method_name + "(" + arg_defaults.map(({ name, kind, code, type }) => kind === "ARG_POS" ? code : name + "=" + code).join(", ") + ")"
+              let line_count = cm.getValue().split("\n").length
+              let mark = cm.markText({ line: line_count - 2, ch: 0 }, { line: line_count - 2, ch: 0 }, { inclusiveRight: true, inclusiveLeft: true }); // insert at end, for now...
+              // START HERE mark isn't working
+              let widget = make_call_widget(method_type, [], [], `${method.receiver_names[0]}.${method.method_name}`, cm, mark, snp_state)
+              // inspector_html += `<div>${method.receiver_names[0]}.${str}</div>`
+              inspector.appendChild(widget);
             }
-            inspector.innerHTML = inspector_html
+            // inspector.innerHTML = inspector_html
           }
           // console.log(hovered_elems)
           ev.stopPropagation();
@@ -662,13 +672,97 @@ function place_inspector(snp_state) {
 }
 
 function arg_defaults_from_callee_type(callee) {
+  console.log(callee)
   return callee.arg_names.map((arg_name, arg_i) => {
     const arg_kind = int_to_arg_kind[callee.arg_kinds[arg_i]];
     const arg_type = callee.arg_types[arg_i];
     const arg_default_code = (callee["definition_arguments_default_code"] || [])[arg_i] || default_code_for_type(arg_type);
 
     return { name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type };
+  }).slice(callee.def_extras.first_arg !== undefined ? 1 : 0) // ignore first arg (self) if def_extras.first_arg is defined
+}
+
+function make_call_widget(callee, given_positional_args, given_keyword_args, callee_code, code_mirror, mark, snp_state) {
+  const widget = document.createElement("div");
+  widget.style.display = "inline-block";
+  widget.style.border = "solid gray 1px";
+
+  let arg_defaults = arg_defaults_from_callee_type(callee);
+
+  // const missing_positional_args = []
+  const missing_positional_args = arg_defaults.
+    slice(given_positional_args.length).
+    takeWhile(arg => arg.kind === "ARG_POS");
+
+  const missing_keyword_args = arg_defaults.
+    slice(given_positional_args.length).
+    slice(missing_positional_args.length).
+    filter(arg => !given_keyword_args.some(given_arg => given_arg.name === arg.name)).
+    filter(arg => arg.kind !== "ARG_STAR2"); // ignore **kwargs
+
+  let callee_el = document.createElement('span');
+  callee_el.innerText = callee_code;
+  widget.appendChild(callee_el);
+
+  const sync_editor_and_output = function () {
+    const { from, to } = mark.find();
+    const code = to_code(widget);
+    // console.log(code)
+    code_mirror.replaceRange(code, from, to);
+    snp_state && redraw_cell(snp_state);
+  };
+
+  let args_el = document.createElement('span');
+  try {
+    args_el.contentEditable = "plaintext-only";
+  } catch (_) {
+    args_el.contentEditable = true; // Firefox
+  }
+
+  let arg_els = [];
+
+  arg_els.push(...given_positional_args.map(arg => make_arg_el(sync_editor_and_output, arg, { positional: true })));
+
+  let missing_positional_arg_els = missing_positional_args.map(arg => make_arg_el(sync_editor_and_output, arg, { positional: true }));
+
+  arg_els.push(make_ellipses_el(sync_editor_and_output, missing_positional_arg_els));
+
+  arg_els.push(...given_keyword_args.map(arg => make_arg_el(sync_editor_and_output, arg)));
+
+  let missing_keyword_arg_els = missing_keyword_args.map(arg => make_arg_el(sync_editor_and_output, arg));
+
+  arg_els.push(make_ellipses_el(sync_editor_and_output, missing_keyword_arg_els));
+
+  arg_els.forEach((arg_el, i) => {
+    if (i !== 0 && typeof arg_el.hidden_arg_els === "undefined") { // no comma before first arg or ellipses
+      args_el.append(", ");
+    }
+    args_el.appendChild(arg_el);
   });
+
+  widget.append("(", args_el, ")");
+
+
+  widget.addEventListener("keydown", ev => {
+    ev.stopPropagation();
+    if (ev.ctrlKey && ev.code === "Enter") {
+      deselect_all(snp_state);
+      snp_state.cell.busy = false;
+      snp_state.cell.execute();
+      code_mirror.getAllMarks().forEach(mark => mark.clear());
+    }
+  });
+
+  widget.addEventListener("keyup", ev => {
+    ev.stopPropagation();
+    sync_editor_and_output(); // Live update is one keypress behind if we attach this to keydown :/
+  });
+
+  widget.addEventListener("mousedown", ev => {
+    ev.stopPropagation();
+  });
+
+  return widget;
 }
 
 function widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
@@ -685,10 +779,12 @@ function widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
 
     const start_pos = item_to_start_pos(call);
     const end_pos = item_to_end_pos(call);
-
-    // START HERE: ignore first arg if def_extras.first_arg is defined
-
-    let arg_defaults = arg_defaults_from_callee_type(callee);
+    const mark = cm.markText(start_pos, end_pos, {
+      // replacedWith: widget,
+      inclusiveRight: true,
+      inclusiveLeft: true,
+    });
+    let callee_code = cm.getRange(item_to_start_pos(callee), item_to_end_pos(callee));
 
     let given_args2 = [];
     given_args.forEach((given_arg, arg_i) => {
@@ -698,94 +794,15 @@ function widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
       given_args2.push({ name: given_arg.name, kind: arg_kind, code: arg_val_code, type: callee.arg_types[arg_i_at_func_def] });
     });
 
-    // console.log(arg_defaults.map(({name, code}) => `${name}=${code}`).join(", "))
-    let callee_code = cm.getRange(item_to_start_pos(callee), item_to_end_pos(callee));
-
-    const widget = document.createElement("div");
-    widget.style.display = "inline-block";
-    widget.style.border = "solid gray 1px";
-    widget.start_pos = start_pos
-    widget.end_pos   = end_pos
-
     const [given_positional_args, given_keyword_args] = given_args2.partition(arg => !arg.name);
 
-    // const missing_positional_args = []
-    const missing_positional_args = arg_defaults.
-      slice(given_positional_args.length).
-      takeWhile(arg => arg.kind === "ARG_POS");
+    // console.log(arg_defaults.map(({name, code}) => `${name}=${code}`).join(", "))
 
-    const missing_keyword_args = arg_defaults.
-      slice(given_positional_args.length).
-      slice(missing_positional_args.length).
-      filter(arg => !given_keyword_args.some(given_arg => given_arg.name === arg.name)).
-      filter(arg => arg.kind !== "ARG_STAR2"); // ignore **kwargs
+    const widget = make_call_widget(callee, given_positional_args, given_keyword_args, callee_code, cm, mark, snp_state);
 
-    let callee_el = document.createElement('span');
-    callee_el.innerText = callee_code;
-    widget.appendChild(callee_el);
-
-    let args_el = document.createElement('span');
-    try {
-      args_el.contentEditable = "plaintext-only";
-    } catch (_) {
-      args_el.contentEditable = true; // Firefox
-    }
-
-    let arg_els = [];
-
-    arg_els.push(...given_positional_args.map(arg => make_arg_el(widget, arg, { positional: true })));
-
-    let missing_positional_arg_els = missing_positional_args.map(arg => make_arg_el(widget, arg, { positional: true }));
-
-    arg_els.push(make_ellipses_el(widget, missing_positional_arg_els));
-
-    arg_els.push(...given_keyword_args.map(arg => make_arg_el(widget, arg)));
-
-    let missing_keyword_arg_els = missing_keyword_args.map(arg => make_arg_el(widget, arg));
-
-    arg_els.push(make_ellipses_el(widget, missing_keyword_arg_els));
-
-    arg_els.forEach((arg_el, i) => {
-      if (i !== 0 && typeof arg_el.hidden_arg_els === "undefined") { // no comma before first arg or ellipses
-        args_el.append(", ");
-      }
-      args_el.appendChild(arg_el);
-    });
-
-    widget.append("(", args_el, ")");
-
-    const mark = cm.markText(start_pos, end_pos, {
-      // replacedWith: widget,
-      inclusiveRight: true,
-      inclusiveLeft: true,
-    });
-
-    widget.sync_editor_and_output = function () {
-      const { from, to } = mark.find();
-      const code = to_code(widget);
-      // console.log(code)
-      cm.replaceRange(code, from, to);
-      snp_state && redraw_cell(snp_state);
-    };
-
-    widget.addEventListener("keydown", ev => {
-      ev.stopPropagation();
-      if (ev.ctrlKey && ev.code === "Enter") {
-        deselect_all(snp_state);
-        snp_state.cell.busy = false;
-        snp_state.cell.execute();
-        cm.getAllMarks().forEach(mark => mark.clear());
-      }
-    });
-
-    widget.addEventListener("keyup", ev => {
-      ev.stopPropagation();
-      widget.sync_editor_and_output(); // Live update is one keypress behind if we attach this to keydown :/
-    });
-
-    widget.addEventListener("mousedown", ev => {
-      ev.stopPropagation();
-    });
+    // Used to match existing calls in the code with the widget
+    widget.start_pos = start_pos;
+    widget.end_pos   = end_pos;
 
     widgets.push(widget)
   });
