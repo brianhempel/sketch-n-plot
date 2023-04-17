@@ -112,6 +112,7 @@ function select(snp_state, shape) {
   shape.dataset.oldStrokeWidth = shape.getAttribute("stroke-width")
   shape.setAttribute("stroke-width", "3.0")
   place_inspector(snp_state)
+  snp_state.snp_outer.querySelectorAll(".add_hint").forEach(hide)
 }
 
 function deselect_all(snp_state) {
@@ -121,6 +122,7 @@ function deselect_all(snp_state) {
     snp_state.selected_shape = undefined
   }
   snp_state.inspector.remove()
+  snp_state.snp_outer.querySelectorAll(".add_hint").forEach(show)
   // const code_mirror_popup = snp_state.code_mirror_popup;
   // if (code_mirror_popup) {
   //   code_mirror_popup.getWrapperElement().remove(); // delete editor "Remove getWrapperElement() from your tree to delete an editor instance"
@@ -129,16 +131,20 @@ function deselect_all(snp_state) {
 }
 
 function relativeTopLeft(el, container) {
-  const {top,        left,      } = el.getBoundingClientRect();
-  const {top: top0,  left: left0} = container.getBoundingClientRect();
+  const {top, left} = relativeBoundingRect(el, container)
+  return [top, left]
+}
 
-  // console.log(el.getBoundingClientRect());
-  // console.log(container.getBoundingClientRect());
+function relativeBoundingRect(el, container) {
+  const elRect = el.getBoundingClientRect();
+  const refRect = container.getBoundingClientRect();
 
-  return [
-    top - top0,
-    left - left0
-  ]
+  return DOMRect.fromRect({
+    x:      elRect.x      - refRect.x,
+    y:      elRect.y      - refRect.y,
+    width:  elRect.width,
+    height: elRect.height,
+  })
 }
 
 
@@ -467,6 +473,19 @@ int_to_arg_kind = [
   "ARG_NAMED_OPT", // In an argument list, keyword-only and also optional
 ]
 
+// Sort by number of dots, then by total length.
+function compare_qualified_names(name1, name2) {
+  return name1.length + 100*name1.split(".").length - (name2.length +  + 100*name2.split(".").length);
+}
+
+function hide(elem) {
+  elem.classList.add("hidden");
+}
+
+function show(elem) {
+  elem.classList.remove("hidden");
+}
+
 function infer_types_and_attach_widgets(snp_state) {
   const { cell, snp_outer, inspector } = snp_state
   let code_cells = Jupyter.notebook.get_cells().filter(cell => cell.cell_type === "code");
@@ -495,6 +514,14 @@ function infer_types_and_attach_widgets(snp_state) {
 
   console.log({cell_lineno: cell_lineno})
 
+  snp_outer.addEventListener("mouseenter", () => {
+    snp_outer.querySelectorAll(".add_hint").forEach(show)
+  });
+
+  snp_outer.addEventListener("mouseleave", () => {
+    snp_outer.querySelectorAll(".add_hint").forEach(hide)
+  });
+
   // console.log(cells);
   // console.log(cells.map(cell => cell.input_prompt_number));
   // console.log(notebook_code_up_through_current_cell)
@@ -502,7 +529,7 @@ function infer_types_and_attach_widgets(snp_state) {
   const just_log  = { shell: { reply: console.log }, iopub: { output: console.log }};
   let old_callback = callbacks.shell.reply;
   callbacks.shell.reply = (msg) => {
-    if (msg.msg_type == "execute_reply" && msg.content.status == "ok" &&msg.content.user_expressions.inferred.status == "ok") {
+    if (msg.msg_type == "execute_reply" && msg.content.status == "ok" && msg.content.user_expressions.inferred.status == "ok") {
       console.log(msg.content.user_expressions.inferred)
       const items = msg.content.user_expressions.inferred.data["application/json"];
       const cell_items = items.filter(call_info => call_info.callee.loc.line >= cell_lineno);
@@ -539,6 +566,30 @@ function infer_types_and_attach_widgets(snp_state) {
         }
       });
 
+      snp_state.hover_regions_svg().querySelectorAll('[data-add-hint]:not([data-loc])').forEach(hover_region => {
+        let hint = document.createElement("div")
+        hint.style.display = "inline-block"
+        hint.style.borderRadius = "3px"
+        hint.style.fontSize = "10px"
+        hint.style.background = "#f4f4f4"
+        hint.style.border = "solid 1px #ddd"
+        hint.style.lineHeight = "normal"
+        hint.style.padding = "1px"
+        hint.style.cursor = "pointer"
+        hint.innerHTML = hover_region.dataset.addHint
+        hint.classList.add("add_hint")
+        snp_outer.appendChild(hint)
+        place_over_shape(snp_state, hover_region, hint)
+        hint.addEventListener("click", ev => {
+          // https://www.growingwiththeweb.com/2016/07/redirecting-dom-events.html
+          hover_region.dispatchEvent(new ev.constructor(ev.type, ev))
+          ev.preventDefault()
+          ev.stopImmediatePropagation()
+        });
+        hide(hint)
+        // console.log(hint)
+      })
+
       snp_state.hover_regions_svg().querySelectorAll('[data-new-methods]').forEach(hover_region => {
         if (hover_region.dataset.loc) {
           return;
@@ -560,17 +611,20 @@ function infer_types_and_attach_widgets(snp_state) {
             // const method_types = JSON.parse(hover_region.dataset.methodTypes);
             let inspector_html = `<div>${hover_region.dataset.artistNames}</div>`
             let cm = cell.code_mirror
+            let widgets = []
             for (const method of methods) {
               let method_type = method.method_type
               let arg_defaults = arg_defaults_from_callee_type(method_type);
               // let str = method.method_name + "(" + arg_defaults.map(({ name, kind, code, type }) => kind === "ARG_POS" ? code : name + "=" + code).join(", ") + ")"
               let line_count = cm.getValue().split("\n").length
-              let mark = cm.markText({ line: line_count - 2, ch: 0 }, { line: line_count - 2, ch: 0 }, { inclusiveRight: true, inclusiveLeft: true }); // insert at end, for now...
-              // START HERE mark isn't working
-              let widget = make_call_widget(method_type, [], [], `${method.receiver_names[0]}.${method.method_name}`, cm, mark, snp_state)
+              let mark = cm.markText({ line: line_count - 2, ch: 0 }, { line: line_count - 2, ch: 0 }, { inclusiveRight: true, inclusiveLeft: true, clearWhenEmpty: false }); // insert at end, for now...
+              let shortest_name = Array.from(method.receiver_names).sort(compare_qualified_names)[0]
+              let widget = make_call_widget(method_type, [], [], `${shortest_name}.${method.method_name}`, cm, mark, snp_state)
               // inspector_html += `<div>${method.receiver_names[0]}.${str}</div>`
-              inspector.appendChild(widget);
+              widgets.push(widget)
             }
+            // Order by shortest method call first.
+            inspector.append(...widgets.sort((w1, w2) => compare_qualified_names(w1.innerText.match(/^[^\(]*/)[0], w2.innerText.match(/^[^\(]*/)[0])))
             // inspector.innerHTML = inspector_html
           }
           // console.log(hovered_elems)
@@ -664,11 +718,26 @@ function place_inspector(snp_state) {
   const [top, left] = relativeTopLeft(shape, snp_state.snp_outer);
   snp_state.inspector.style = `
                 position: absolute;
-                top: ${Math.min(top, max_height)}px;
-                left: ${Math.min(left + shape.getBoundingClientRect().width, max_width)}px;
+                top: ${Math.max(0, Math.min(top, max_height))}px;
+                left: ${Math.max(0, Math.min(left + shape.getBoundingClientRect().width, max_width))}px;
                 background: #eee;
                 border: solid 1px #aaa;
               `.replace(/\n\s*/g, " ");
+}
+
+function place_over_shape(snp_state, shape, el) {
+  const [plot_width, plot_height]   = [snp_state.img.getBoundingClientRect().width, snp_state.img.getBoundingClientRect().height];
+  const shapeRect = relativeBoundingRect(shape, snp_state.snp_outer);
+  const elRect = el.getBoundingClientRect();
+  let top = shapeRect.top + shapeRect.height/2 - elRect.height/2
+  let left = shapeRect.left + shapeRect.width/2 - elRect.width/2
+  top = Math.max(0, Math.min(top, plot_height - elRect.height))
+  left = Math.max(0, Math.min(left, plot_width - elRect.width))
+  // console.log("shapeRect", shapeRect)
+  // console.log("elRect", elRect)
+  el.style.position = "absolute"
+  el.style.top = `${top}px`
+  el.style.left = `${left}px`
 }
 
 function arg_defaults_from_callee_type(callee) {
@@ -684,7 +753,7 @@ function arg_defaults_from_callee_type(callee) {
 
 function make_call_widget(callee, given_positional_args, given_keyword_args, callee_code, code_mirror, mark, snp_state) {
   const widget = document.createElement("div");
-  widget.style.display = "inline-block";
+  // widget.style.display = "inline-block";
   widget.style.border = "solid gray 1px";
 
   let arg_defaults = arg_defaults_from_callee_type(callee);
@@ -692,7 +761,7 @@ function make_call_widget(callee, given_positional_args, given_keyword_args, cal
   // const missing_positional_args = []
   const missing_positional_args = arg_defaults.
     slice(given_positional_args.length).
-    takeWhile(arg => arg.kind === "ARG_POS");
+    takeWhile(arg => arg.kind === "ARG_POS" || arg.king === "ARG_OPT");
 
   const missing_keyword_args = arg_defaults.
     slice(given_positional_args.length).
@@ -723,9 +792,14 @@ function make_call_widget(callee, given_positional_args, given_keyword_args, cal
 
   arg_els.push(...given_positional_args.map(arg => make_arg_el(sync_editor_and_output, arg, { positional: true })));
 
-  let missing_positional_arg_els = missing_positional_args.map(arg => make_arg_el(sync_editor_and_output, arg, { positional: true }));
+  // if used for a new call, required args need to be generated
+  let needed_positional_args = missing_positional_args.takeWhile(arg => arg.kind === "ARG_POS").map(arg => make_arg_el(sync_editor_and_output, arg, { positional: true }));
 
-  arg_els.push(make_ellipses_el(sync_editor_and_output, missing_positional_arg_els));
+  arg_els.push(...needed_positional_args);
+
+  let missing_optional_positional_arg_els = missing_positional_args.slice(needed_positional_args.length).map(arg => make_arg_el(sync_editor_and_output, arg, { positional: true }));
+
+  arg_els.push(make_ellipses_el(sync_editor_and_output, missing_optional_positional_arg_els));
 
   arg_els.push(...given_keyword_args.map(arg => make_arg_el(sync_editor_and_output, arg)));
 
@@ -879,8 +953,6 @@ function redraw_cell(snp_state) {
       redraw_cell(snp_state);
     } else {
       cell.busy = false;
-      // START HERE: need to intelligently re-attach events to the SVG somehow
-      // Replace hover regions:
       // console.log(msg.content.data["image/svg+xml"])
       // Replace hover regions
       if (msg.header.msg_type === "execute_result" && msg.content.data["image/svg+xml"]) {

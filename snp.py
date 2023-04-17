@@ -122,16 +122,22 @@ def flatten_regions2(objid_methods_geom_children):
   obj_id, methods, geom, children = objid_methods_geom_children
   return [(obj_id, geom)] + flatten([flatten_regions2(child) for child in children])
 
+# Return list of (code to access artist on which to place the method UI, method name on the root artist)
 def method_associations(artist):
     match artist:
-        case mpl.axes.Axes() as ax:
-            return [(ax.title, "set_title")]
-        case mpl.axis.Axis() as axis:
-            return [(axis.label, "set_label_text")]
+        case mpl.axes.Axes():
+            return [
+               (".title",       "set_title"),
+               (".xaxis.label", "set_xlabel"),
+               (".yaxis.label", "set_ylabel"),
+               ("",             "bar"),
+               ("",             "barh"),
+               ("",             "plot"),
+            ]
+        case mpl.axis.Axis():
+            return [(".label", "set_label_text")]
         case _:
             return []
-
-# START HERE: use regions2
 
 # Make sure to render before calling this.
 # returns (artist, list of (artist, method_name), shapley.Geometry, children)
@@ -181,7 +187,7 @@ def regions2(artist : mpl.artist.Artist):
           )
         else:
           print("a;sdkjf;laskdj;lsaknvad")
-    case mpl.axes._subplots.SubplotBase():
+    case mpl.axes.Axes():
       my_geom = None
     case _:
       # print("regions(): unknown artist: " + str(artist))
@@ -198,14 +204,49 @@ def regions2(artist : mpl.artist.Artist):
 
   my_methods_to_place_on_children = method_associations(artist)
 
-  def put_methods_on_child(child_region):
-    child_artist, methods_to_show_on_child, child_geom, grandchild_regions = child_region
-    methods_for_child = [(artist, method_name) for desired_graphical_target, method_name in my_methods_to_place_on_children if desired_graphical_target == child_artist]
-    return (child_artist, methods_to_show_on_child + methods_for_child, child_geom, grandchild_regions)
+  my_region = (artist, [], my_geom, child_regions)
 
-  child_regions = [put_methods_on_child(child_region) for child_region in child_regions]
+  # mutates the array on the appropriate descendant
+  def put_method_on_child(method, target, region, max_search_depth):
+    artist, artist_methods, geom, child_regions = region
 
-  return (artist, [], my_geom, child_regions)
+    if artist == target:
+      artist_methods.append(method)
+    elif max_search_depth > 0:
+      for child_region in child_regions:
+        put_method_on_child(method, target, child_region, max_search_depth - 1)
+
+  for code_to_access_target, my_method_name in method_associations(artist):
+    target = eval("artist" + code_to_access_target)
+    max_search_depth = len(code_to_access_target.split("."))
+    put_method_on_child((artist, my_method_name), target, my_region, max_search_depth)
+
+
+  # # mutates the array on the appropriate descendant
+  # def put_method_on_child(method_for_child, target_child, child_regions, max_search_depth):
+  #   if max_search_depth <= 0:
+  #      return
+
+  #   for child_artist, methods_to_show_on_child, child_geom, grandchild_regions in child_regions:
+  #     if child_artist == target_child:
+  #       methods_to_show_on_child.append(method_for_child)
+  #     put_method_on_child(method_for_child, target_child, grandchild_regions, max_search_depth-1)
+
+  #   return
+
+  # for code_to_access_child, my_method_name in method_associations(artist):
+  #   target_child = eval("artist" + code_to_access_child)
+  #   max_search_depth = len(code_to_access_child.split("."))
+  #   put_method_on_child((artist, my_method_name), target_child, child_regions, max_search_depth)
+
+#   def put_methods_on_child(child_region):
+#     child_artist, methods_to_show_on_child, child_geom, grandchild_regions = child_region
+#     methods_for_child = [(artist, method_name) for desired_graphical_target, method_name in my_methods_to_place_on_children if desired_graphical_target == child_artist]
+#     return (child_artist, methods_to_show_on_child + methods_for_child, child_geom, grandchild_regions)
+
+#   child_regions = [put_methods_on_child(child_region) for child_region in child_regions]
+
+  return my_region
 
 # Make sure to render before calling this.
 # returns (artist, shapley.Geometry, children)
@@ -384,7 +425,8 @@ def region2_to_svg_g(artist_methods_geom_children, object_names, type_graph):
     # perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_loc)}"' if hasattr(artist, "_snp_loc") else ""
     data_methods = json.dumps([{"receiver_id": id(receiver), "receiver_names": list(object_names.get(id(receiver), {})), "method_name": method_name, "method_type": method_type_json(receiver, method_name, type_graph)} for receiver, method_name in methods])
     perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_loc)}"' if hasattr(artist, "_snp_loc") else ""
-    return f"""<g data-artist="{str(artist)}" data-artist-id="{id(artist)}" data-artist-names="{",".join(object_names.get(id(artist), {}))}" data-new-methods="{escape_html(data_methods)}" {perhaps_code_loc}>
+    perhaps_add_hint = f'data-add-hint="+ {",".join([method_name for _, method_name in methods])}"' if len(methods) > 0 else ""
+    return f"""<g data-artist="{str(artist)}" data-artist-id="{id(artist)}" data-artist-names="{",".join(object_names.get(id(artist), {}))}" data-new-methods="{escape_html(data_methods)}" {perhaps_code_loc} {perhaps_add_hint}>
     {geom_svg}
     {child_svgs_str}
     </g>"""
@@ -423,11 +465,12 @@ def object_names(locals, user_names=None):
         key = id(obj)
         out[key] = out.get(key, set()).union({name})
 
-    for name, value in [(name, value) for name, value in locals.items() if name in user_names and name not in trivial_names and not callable(value)]:
-        # Only depth 1 for now
-        for prop_name in [prop_name for prop_name in dir(value) if prop_name not in trivial_names and not callable(getattr(value, prop_name))]:
-            add(getattr(value, prop_name), f'{name}.{prop_name}')
-        add(value, name)
+    with mpl._api.deprecation.suppress_matplotlib_deprecation_warning():
+        for name, value in [(name, value) for name, value in locals.items() if name in user_names and name not in trivial_names and not callable(value)]:
+            # Only depth 1 for now
+            for prop_name in [prop_name for prop_name in dir(value) if prop_name not in trivial_names and not callable(getattr(value, prop_name))]:
+                add(getattr(value, prop_name), f'{name}.{prop_name}')
+            add(value, name)
 
     return out
 
@@ -495,6 +538,7 @@ class SNP():
             .snp_outer > svg g.hovered > path {{
               stroke-width: 3.0;
             }}
+            .hidden {{ display: none }}
             </style>
             <img style="margin: 0; border: solid 1px black;" src='{data_url}'> <!-- the plot -->
             {self._repr_svg_()} <!-- hover regions -->
