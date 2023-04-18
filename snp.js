@@ -164,19 +164,19 @@ function get_cells_up_through(cell) {
 // 3. Typecheck it in the kernel
 //
 
-function default_code_for_type(type) {
+function default_code_and_arg_for_type(type) {
   if (type === "builtins.str") {
-    return '""'
+    return ['""', type]
   } else if (type === "builtins.float") {
-    return "0.0"
+    return ["0.0", type]
   } else if (type[".class"] === "Instance" && type["type_ref"] === "builtins.dict") {
-    return "{}"
+    return ["{}", type]
   } else if (type[".class"] === "UnionType") {
-    return default_code_for_type(type.items[0])
+    return default_code_and_arg_for_type(type.items[0])
   } else if (type[".class"] === "LiteralType" && type["fallback"] == "builtins.str") {
-    return JSON.stringify(type["value"])
+    return [JSON.stringify(type["value"]), type["fallback"]]
   } else {
-    return "None"
+    return ["None", {".class": "NoneType"}]
   }
 }
 
@@ -313,7 +313,7 @@ function make_dropdown(els, options) {
   return dropdown
 }
 
-function arg_to_widget(sync_editor_and_output, code, type) {
+function arg_to_widget(sync_editor_and_output, code, arg_type, code_type) {
   console.log(code, type)
   if (type[".class"] === "UnionType") {
     const items = type["items"]
@@ -370,7 +370,7 @@ function arg_to_widget(sync_editor_and_output, code, type) {
       const step_per_px = [10000000000, 1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1, 0.1, 0.01, 0.001, 0.0001, 1.0e-05, 1.0e-06, 1.0e-07, 1.0e-08, 1.0e-09, 1.0e-10].find(n => (hi - lo) / n >= 30) || 0.01
       return make_dial_and_num(sync_editor_and_output, code, step_per_px)
     } else {
-      const item_widgets = items.map(item_type => arg_to_widget(sync_editor_and_output, default_code_for_type(item_type), item_type))
+      const item_widgets = items.map(item_type => arg_to_widget(sync_editor_and_output, code, item_type, code_type))
       return make_dropdown(item_widgets)
     // } else {
       // return document.createTextNode(code);
@@ -488,9 +488,9 @@ function make_arg_el(sync_editor_and_output, arg, options) {
     arg_el.append(remove_button)
   }
   if (options?.positional) {
-    arg_el.append(arg_to_widget(sync_editor_and_output, arg.code, arg.type));
+    arg_el.append(arg_to_widget(sync_editor_and_output, arg.code, arg.type, arg.code_type));
   } else {
-    arg_el.append(arg.name, "=", arg_to_widget(sync_editor_and_output, arg.code, arg.type));
+    arg_el.append(arg.name, "=", arg_to_widget(sync_editor_and_output, arg.code, arg.type, arg.code_type));
   }
   return arg_el;
 }
@@ -741,7 +741,12 @@ function arg_defaults_from_callee_type(callee) {
   return callee.arg_names.map((arg_name, arg_i) => {
     const arg_kind = int_to_arg_kind[callee.arg_kinds[arg_i]];
     const arg_type = callee.arg_types[arg_i];
-    const arg_default_code = (callee["definition_arguments_default_code"] || [])[arg_i] || default_code_for_type(arg_type);
+    // Since the function parameter could be a union type, we need to indicate which of the types the actual code is.
+    if (callee["definition_arguments_default_code"]) {
+      let arg_default_code = callee["definition_arguments_default_code"];
+
+    }
+    const [arg_default_code, arg_default_type] = default_code_and_arg_for_type(arg_type);
 
     return { name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type };
   }).slice(callee.def_extras.first_arg !== undefined ? 1 : 0) // ignore first arg (self) if def_extras.first_arg is defined
