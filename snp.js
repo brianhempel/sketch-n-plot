@@ -1,3 +1,15 @@
+ellipses_svg_html = `<svg height="14pt" viewBox="0 0 14 14" width="14pt" xmlns="http://www.w3.org/2000/svg"><path d="m14 8c0 1.65685-1.3431 3-3 3h-8c-1.65685 0-2.99999935-1.34315-2.99999959-3 .00000047-1.65685 1.34314959-3 2.99999959-3h8c1.6569 0 3 1.34315 3 3z" fill="#fff"/><g fill-rule="evenodd"><path d="m3 7c.55229 0 1 .44772 1 1s-.44771 1-1 1c-.55228 0-1-.44772-1-1s.44772-1 1-1z"/><path d="m7 7c.55229 0 1 .44772 1 1s-.44771 1-1 1c-.55228 0-1-.44772-1-1s.44772-1 1-1z"/><path d="m11 7c.5523 0 1 .44772 1 1s-.4477 1-1 1-1-.44772-1-1 .4477-1 1-1z"/></g></svg>`;
+// This is used to make sure we don't have duplicate IDs in the SVGs
+dial_svg_counter = 0;
+// for decoding the "arg_kind" numeric property
+int_to_arg_kind = [
+    "ARG_POS",
+    "ARG_OPT",
+    "ARG_STAR",
+    "ARG_NAMED",
+    "ARG_STAR2",
+    "ARG_NAMED_OPT", // In an argument list, keyword-only and also optional
+];
 Array.prototype.addAsSet = function (elem) {
     if (!this.includes(elem)) {
         this.push(elem);
@@ -131,7 +143,7 @@ function get_cells_up_through(cell) {
 // 2. Set `notebook_code_up_through_current_cell` variable in the kernel
 // 3. Typecheck it in the kernel
 //
-function default_code_and_arg_for_type(type) {
+function default_code_and_code_type_for_type(type) {
     if (type === "builtins.str") {
         return ['""', type];
     }
@@ -142,7 +154,7 @@ function default_code_and_arg_for_type(type) {
         return ["{}", type];
     }
     else if (type[".class"] === "UnionType") {
-        return default_code_and_arg_for_type(type.items[0]);
+        return default_code_and_code_type_for_type(type.items[0]);
     }
     else if (type[".class"] === "LiteralType" && type["fallback"] == "builtins.str") {
         return [JSON.stringify(type["value"]), type["fallback"]];
@@ -151,29 +163,13 @@ function default_code_and_arg_for_type(type) {
         return ["None", { ".class": "NoneType" }];
     }
 }
-class SNPGlobals {
-}
-// this is copy-pasted from ellipses.svg
-// Have to run the SVG through Image Optim first, to (a) remove title elements that create undesired tooltips and (b) remove the ID elements that unhelpfully collide across ALL svgs on the page and cause DOM manipulation bugs.
-SNPGlobals.ellipses_svg_html = `<svg height="14pt" viewBox="0 0 14 14" width="14pt" xmlns="http://www.w3.org/2000/svg"><path d="m14 8c0 1.65685-1.3431 3-3 3h-8c-1.65685 0-2.99999935-1.34315-2.99999959-3 .00000047-1.65685 1.34314959-3 2.99999959-3h8c1.6569 0 3 1.34315 3 3z" fill="#fff"/><g fill-rule="evenodd"><path d="m3 7c.55229 0 1 .44772 1 1s-.44771 1-1 1c-.55228 0-1-.44772-1-1s.44772-1 1-1z"/><path d="m7 7c.55229 0 1 .44772 1 1s-.44771 1-1 1c-.55228 0-1-.44772-1-1s.44772-1 1-1z"/><path d="m11 7c.5523 0 1 .44772 1 1s-.4477 1-1 1-1-.44772-1-1 .4477-1 1-1z"/></g></svg>`;
-// This is used to make sure we don't have duplicate IDs in the SVGs
-SNPGlobals.dial_svg_counter = 0;
-// for decoding the "arg_kind" numeric property
-SNPGlobals.int_to_arg_kind = [
-    "ARG_POS",
-    "ARG_OPT",
-    "ARG_STAR",
-    "ARG_NAMED",
-    "ARG_STAR2",
-    "ARG_NAMED_OPT", // In an argument list, keyword-only and also optional
-];
 // this is copy-pasted from dial.svg, but remove the newline between <?xml> and <svg>
 // For some reason, Image Optim chokes on this. I don't think it likes linear gradients.
 // Do our own ID mangling.
 // We are using the "nub" title to find the nub (for now) so don't remove titles.
 function dial_svg_html() {
-    SNPGlobals.dial_svg_counter += 1;
-    const unique_id = SNPGlobals.dial_svg_counter;
+    dial_svg_counter += 1;
+    const unique_id = dial_svg_counter;
     return `<?xml version="1.0" encoding="utf-8"?><svg x="0pt" y="0pt" width="14pt" height="14pt" viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
     <g id="1">
       <title>Layer 1</title>
@@ -253,7 +249,7 @@ function make_el(tag, attrs, style, listeners, children) {
     return el;
 }
 // options is { selected_el: el }
-function make_dropdown(els, options = { selected_el: undefined }) {
+function make_dropdown(sync_editor_and_output, els, options = { selected_el: undefined }) {
     const dropdown = document.createElement("div");
     dropdown.style.display = "inline-block";
     dropdown.style.position = "relative"; // so we can position the open dropdown
@@ -269,6 +265,7 @@ function make_dropdown(els, options = { selected_el: undefined }) {
                     ev.stopPropagation();
                     opened_dropdown.remove();
                     set_dropdown(el);
+                    sync_editor_and_output();
                 },
             }, [to_code(el)]);
         }));
@@ -338,8 +335,21 @@ function arg_to_widget(sync_editor_and_output, code, arg_type, code_type) {
             return make_dial_and_num(sync_editor_and_output, code, step_per_px);
         }
         else {
-            const item_widgets = items.map(item_type => arg_to_widget(sync_editor_and_output, code, item_type, code_type));
-            return make_dropdown(item_widgets);
+            let could_determine_given_code_type = false;
+            const item_widgets = items.map(item_type => {
+                if (equal_by_json(item_type, code_type)) {
+                    could_determine_given_code_type = true;
+                    return arg_to_widget(sync_editor_and_output, code, item_type, code_type);
+                }
+                else {
+                    const [default_code, default_code_type] = default_code_and_code_type_for_type(item_type);
+                    return arg_to_widget(sync_editor_and_output, default_code, item_type, default_code_type);
+                }
+            });
+            if (!could_determine_given_code_type) {
+                item_widgets.unshift(arg_to_widget(sync_editor_and_output, code, {}, {}));
+            }
+            return make_dropdown(sync_editor_and_output, item_widgets);
             // } else {
             // return document.createTextNode(code);
         }
@@ -408,7 +418,7 @@ function siblingsBefore(node) {
     }
     return siblings;
 }
-// arg is { name:, kind:, code:, type: }
+// arg is { name:, kind:, code:, type:, code_type: }
 // options is optional, default is { positional: false }
 function make_arg_el(sync_editor_and_output, arg, options = { positional: false }) {
     const arg_el = document.createElement('span');
@@ -457,7 +467,7 @@ function make_ellipses_el(sync_editor_and_output, hidden_arg_els) {
     ellipses_el.hidden_arg_els = hidden_arg_els;
     ellipses_el.style.cursor = "pointer";
     ellipses_el.to_code = () => "";
-    ellipses_el.innerHTML = " " + SNPGlobals.ellipses_svg_html;
+    ellipses_el.innerHTML = " " + ellipses_svg_html;
     ellipses_el.querySelector("svg").style.verticalAlign = "middle";
     ellipses_el.addEventListener("click", ev => {
         ev.stopPropagation();
@@ -660,14 +670,19 @@ function place_over_shape(snp_state, shape, el) {
 function arg_defaults_from_callee_type(callee) {
     console.log(callee);
     return callee.arg_names.map((arg_name, arg_i) => {
-        const arg_kind = SNPGlobals.int_to_arg_kind[callee.arg_kinds[arg_i]];
+        const arg_kind = int_to_arg_kind[callee.arg_kinds[arg_i]];
         const arg_type = callee.arg_types[arg_i];
         // Since the function parameter could be a union type, we need to indicate which of the types the actual code is.
+        let arg_default_code;
+        let arg_default_type;
         if (callee["definition_arguments_default_code"]) {
-            let arg_default_code = callee["definition_arguments_default_code"];
+            arg_default_code = callee["definition_arguments_default_code"];
+            arg_default_type = undefined; // We don't know.
         }
-        const [arg_default_code, arg_default_type] = default_code_and_arg_for_type(arg_type);
-        return { name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type };
+        else {
+            [arg_default_code, arg_default_type] = default_code_and_code_type_for_type(arg_type);
+        }
+        return { name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type, code_type: arg_default_type };
     }).slice(callee.def_extras.first_arg !== undefined ? 1 : 0); // ignore first arg (self) if def_extras.first_arg is defined
 }
 function hard_rerun(snp_state) {
@@ -683,7 +698,7 @@ function make_call_widget(callee, given_positional_args, given_keyword_args, cal
     // const missing_positional_args = []
     const missing_positional_args = arg_defaults.
         slice(given_positional_args.length).
-        takeWhile(arg => arg.kind === "ARG_POS" || arg.king === "ARG_OPT");
+        takeWhile(arg => arg.kind === "ARG_POS" || arg.kind === "ARG_OPT");
     const missing_keyword_args = arg_defaults.
         slice(given_positional_args.length).
         slice(missing_positional_args.length).
@@ -758,7 +773,7 @@ function loced_widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
         let callee_code = cm.getRange(item_to_start_pos(callee), item_to_end_pos(callee));
         let given_args2 = [];
         given_args.forEach((given_arg, arg_i) => {
-            const arg_kind = SNPGlobals.int_to_arg_kind[given_arg.kind];
+            const arg_kind = int_to_arg_kind[given_arg.kind];
             const arg_i_at_func_def = given_arg["name"] ? callee.arg_names.indexOf(given_arg.name) : arg_i;
             const arg_val_code = cm.getRange(item_to_start_pos(given_arg), item_to_end_pos(given_arg));
             given_args2.push({ name: given_arg.name, kind: arg_kind, code: arg_val_code, type: callee.arg_types[arg_i_at_func_def] });
