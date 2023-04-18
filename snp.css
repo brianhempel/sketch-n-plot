@@ -1,0 +1,4 @@
+.snp_outer > svg g.hovered > path {{
+  stroke-width: 3.0;
+}}
+.hidden {{ display: none }}

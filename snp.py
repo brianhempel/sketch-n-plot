@@ -141,11 +141,17 @@ def method_associations(artist):
 
 # Make sure to render before calling this.
 # returns (artist, list of (artist, method_name), shapley.Geometry, children)
-def regions2(artist : mpl.artist.Artist):
+def regions2(artist):
   child_pad = 3
 
   if "get_children" in dir(artist):
     children = artist.get_children()
+    # Axes get_children() flattens its container children. Unflatten.
+    if isinstance(artist, mpl.axes.Axes):
+      containers = artist.containers
+      container_children = flatten([container.get_children() for container in containers])
+      children = [child for child in children if child not in container_children] # remove items in containers
+      children += containers # add the containers instead
   else:
     children = []
 
@@ -165,7 +171,8 @@ def regions2(artist : mpl.artist.Artist):
       bbox = mpl.text.Text.get_window_extent(text)
       my_geom = mpl_bbox_to_shapely(bbox)
     case mpl.patches.Rectangle() as rect:
-      my_geom = mpl_bbox_to_shapely(rect.get_bbox())
+      bbox = rect.get_window_extent()
+      my_geom = mpl_bbox_to_shapely(bbox)
     case mpl.lines.Line2D() as line:
       # based on mpl lines.py contains
       if line._xy is None or len(line._xy) == 0:
@@ -202,7 +209,7 @@ def regions2(artist : mpl.artist.Artist):
 
   my_geom = shapely.buffer(my_geom, child_pad, quad_segs = 1, cap_style='square', join_style='mitre') # expand by 10px
 
-  my_methods_to_place_on_children = method_associations(artist)
+  # my_methods_to_place_on_children = method_associations(artist)
 
   my_region = (artist, [], my_geom, child_regions)
 
@@ -218,7 +225,7 @@ def regions2(artist : mpl.artist.Artist):
 
   for code_to_access_target, my_method_name in method_associations(artist):
     target = eval("artist" + code_to_access_target)
-    max_search_depth = len(code_to_access_target.split("."))
+    max_search_depth = len(code_to_access_target.split(".")) + 1
     put_method_on_child((artist, my_method_name), target, my_region, max_search_depth)
 
 
@@ -250,7 +257,7 @@ def regions2(artist : mpl.artist.Artist):
 
 # Make sure to render before calling this.
 # returns (artist, shapley.Geometry, children)
-def regions(artist : mpl.artist.Artist):
+def regions(artist):
   child_pad = 3
 
   if "get_children" in dir(artist):
@@ -531,15 +538,8 @@ class SNP():
 
         return f"""
             <div class="snp_outer" style="position:relative;">
-            <script>
-            {pathlib.Path("snp.js").read_text()}
-            </script>
-            <style>
-            .snp_outer > svg g.hovered > path {{
-              stroke-width: 3.0;
-            }}
-            .hidden {{ display: none }}
-            </style>
+            <script>{pathlib.Path("snp.js").read_text()}</script>
+            <style>{pathlib.Path("snp.css").read_text()}</style>
             <img style="margin: 0; border: solid 1px black;" src='{data_url}'> <!-- the plot -->
             {self._repr_svg_()} <!-- hover regions -->
             <style onload="attach_snp(this.closest('.snp_outer'))"></style> <!-- Just a way to run this code once the elements exist. -->
@@ -622,24 +622,23 @@ def tag_with_provenance(obj, lineno, col_offset, end_lineno, end_col_offset):
 
     loc = (lineno, col_offset, end_lineno, end_col_offset)
 
-    if isinstance(obj, tuple):
-        return LocedTuple(obj, loc)
-    elif isinstance(obj, str):
-        return LocedStr(obj, loc)
-    elif isinstance(obj, list):
-        return LocedList([tag_with_provenance(child, lineno, col_offset, end_lineno, end_col_offset) for child in obj], loc)
-    elif isinstance(obj, dict):
-        return LocedDict(obj, loc)
-    elif isinstance(obj, int):
-        return LocedInt(obj, loc)
-    elif isinstance(obj, float):
-        return LocedFloat(obj, loc)
-
     try:
         obj._snp_loc = loc
         return obj
     except:
-        return obj
+      if isinstance(obj, tuple):
+          return LocedTuple(obj, loc)
+      elif isinstance(obj, str):
+          return LocedStr(obj, loc)
+      elif isinstance(obj, list):
+          return LocedList([tag_with_provenance(child, lineno, col_offset, end_lineno, end_col_offset) for child in obj], loc)
+      elif isinstance(obj, dict):
+          return LocedDict(obj, loc)
+      elif isinstance(obj, int):
+          return LocedInt(obj, loc)
+      elif isinstance(obj, float):
+          return LocedFloat(obj, loc)
+      return obj
 
 class ProvenanceTagger(ast.NodeTransformer):
     def visit_Call(self, node):
@@ -787,11 +786,11 @@ class MyVisitor(TraverserVisitor):
         # if node.node is not None:
         #   print(node.node.type)
 
-
-import_lineset = set()
-fine_grained_build_manager = None
-mypy_result = None
-fscache = None
+if "import_lineset" not in globals():
+  import_lineset = set()
+  fine_grained_build_manager = None
+  mypy_result = None
+  fscache = None
 
 file_path = "current_notebook.py"
 module_name = os.path.splitext(os.path.basename(file_path))[0]

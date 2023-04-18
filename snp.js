@@ -123,11 +123,6 @@ function deselect_all(snp_state) {
   }
   snp_state.inspector.remove()
   snp_state.snp_outer.querySelectorAll(".add_hint").forEach(show)
-  // const code_mirror_popup = snp_state.code_mirror_popup;
-  // if (code_mirror_popup) {
-  //   code_mirror_popup.getWrapperElement().remove(); // delete editor "Remove getWrapperElement() from your tree to delete an editor instance"
-  //   snp_state.code_mirror_popup = undefined
-  // }
 }
 
 function relativeTopLeft(el, container) {
@@ -263,6 +258,61 @@ function to_code(node) {
   }
 }
 
+function make_el(tag, attrs, style, listeners, children) {
+  const el = document.createElement(tag)
+
+  for (key in attrs) {
+    el[key] = attrs[key]
+  }
+
+  for (key in style) {
+    el.style[key] = style[key]
+  }
+
+  for (key in listeners) {
+    el.addEventListener(key, listeners[key])
+  }
+
+  el.append(...children)
+
+  return el
+}
+
+// options is { selected_el: el }
+function make_dropdown(els, options) {
+  const dropdown = document.createElement("div")
+  dropdown.style.display = "inline-block"
+  dropdown.style.position = "relative" // so we can position the open dropdown
+
+  function set_dropdown(el) {
+    dropdown.innerHTML = ""
+    dropdown.selected_el = el
+    dropdown.append(dropdown.selected_el, select_button)
+  }
+
+  function open_dropdown(ev) {
+    let opened_dropdown = make_el("div", {}, {position: "absolute", "z-index":10}, {}, Array.from(els).map(el => {
+      return make_el("div", {class: "option"}, {background: "white", cursor: "pointer"}, {
+        click: ev => {
+          ev.stopPropagation();
+          opened_dropdown.remove();
+          set_dropdown(el);
+        },
+      }, [to_code(el)]);
+    }));
+
+    dropdown.prepend(opened_dropdown)
+  }
+
+  const select_button = make_el("span", {}, {cursor: "pointer"}, { click: open_dropdown }, ["▾"]);
+
+  set_dropdown(options?.selected_el || els[0])
+
+  dropdown.to_code = () => to_code(dropdown.selected_el)
+
+  return dropdown
+}
+
 function arg_to_widget(sync_editor_and_output, code, type) {
   console.log(code, type)
   if (type[".class"] === "UnionType") {
@@ -320,7 +370,10 @@ function arg_to_widget(sync_editor_and_output, code, type) {
       const step_per_px = [10000000000, 1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1, 0.1, 0.01, 0.001, 0.0001, 1.0e-05, 1.0e-06, 1.0e-07, 1.0e-08, 1.0e-09, 1.0e-10].find(n => (hi - lo) / n >= 30) || 0.01
       return make_dial_and_num(sync_editor_and_output, code, step_per_px)
     } else {
-      return document.createTextNode(code);
+      const item_widgets = items.map(item_type => arg_to_widget(sync_editor_and_output, default_code_for_type(item_type), item_type))
+      return make_dropdown(item_widgets)
+    // } else {
+      // return document.createTextNode(code);
     }
   } else if (type === "builtins.float") {
     return make_dial_and_num(sync_editor_and_output, code, 0.01)
@@ -508,8 +561,6 @@ function infer_types_and_attach_widgets(snp_state) {
 
   let notebook_code_through_cell = `${notebook_code_before_cell}\n${cell.get_text()}`;
 
-  // console.log(notebook_code_through_cell);
-
   let cell_lineno = notebook_code_before_cell.split("\n").length + 1
 
   console.log({cell_lineno: cell_lineno})
@@ -522,9 +573,6 @@ function infer_types_and_attach_widgets(snp_state) {
     snp_outer.querySelectorAll(".add_hint").forEach(hide)
   });
 
-  // console.log(cells);
-  // console.log(cells.map(cell => cell.input_prompt_number));
-  // console.log(notebook_code_up_through_current_cell)
   const callbacks = cell.get_callbacks();
   const just_log  = { shell: { reply: console.log }, iopub: { output: console.log }};
   let old_callback = callbacks.shell.reply;
@@ -538,7 +586,7 @@ function infer_types_and_attach_widgets(snp_state) {
 
       let widgets = widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state);
 
-      console.log("widgets", widgets)
+      // console.log("widgets", widgets)
 
       snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
         const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
@@ -578,6 +626,7 @@ function infer_types_and_attach_widgets(snp_state) {
         hint.style.cursor = "pointer"
         hint.innerHTML = hover_region.dataset.addHint
         hint.classList.add("add_hint")
+        hint.classList.add("remove_on_new_hover_regions")
         snp_outer.appendChild(hint)
         place_over_shape(snp_state, hover_region, hint)
         hint.addEventListener("click", ev => {
@@ -609,22 +658,35 @@ function infer_types_and_attach_widgets(snp_state) {
             inspector.innerHTML = "";
             snp_outer.appendChild(inspector);
             // const method_types = JSON.parse(hover_region.dataset.methodTypes);
-            let inspector_html = `<div>${hover_region.dataset.artistNames}</div>`
+            // let inspector_html = `<div>${hover_region.dataset.artistNames}</div>`
             let cm = cell.code_mirror
-            let widgets = []
+            let new_code_buttons = []
             for (const method of methods) {
               let method_type = method.method_type
-              let arg_defaults = arg_defaults_from_callee_type(method_type);
+              // let arg_defaults = arg_defaults_from_callee_type(method_type);
               // let str = method.method_name + "(" + arg_defaults.map(({ name, kind, code, type }) => kind === "ARG_POS" ? code : name + "=" + code).join(", ") + ")"
               let line_count = cm.getValue().split("\n").length
               let mark = cm.markText({ line: line_count - 2, ch: 0 }, { line: line_count - 2, ch: 0 }, { inclusiveRight: true, inclusiveLeft: true, clearWhenEmpty: false }); // insert at end, for now...
               let shortest_name = Array.from(method.receiver_names).sort(compare_qualified_names)[0]
-              let widget = make_call_widget(method_type, [], [], `${shortest_name}.${method.method_name}`, cm, mark, snp_state)
+              let arg_defaults = arg_defaults_from_callee_type(method_type);
+              let [required_positional_arg, required_keyword_args] = arg_defaults.filter(arg => arg.kind === "ARG_POS" || arg.kind === "ARG_NAMED" ).partition(arg => arg.kind === "ARG_POS");
+              let required_positional_arg_codes = required_positional_arg.map(arg => arg.code);
+              let required_keyword_arg_codes    = required_keyword_args.map(arg => `${arg.name}=${arg.code}`);
+              let new_code = `${shortest_name}.${method.method_name}(${required_positional_arg_codes.concat(required_keyword_arg_codes).join(",")})\n`;
+              // let widget = make_call_widget(method_type, [], [], `${shortest_name}.${method.method_name}`, cm, mark, snp_state)
               // inspector_html += `<div>${method.receiver_names[0]}.${str}</div>`
-              widgets.push(widget)
+              let new_code_button = make_el("div", {}, {}, {
+                click: ev => {
+                  const { from, to } = mark.find();
+                  // console.log(code)
+                  cm.replaceRange(new_code, from, to);
+                  hard_rerun(snp_state)
+                }
+              }, [new_code])
+              new_code_buttons.push(new_code_button)
             }
             // Order by shortest method call first.
-            inspector.append(...widgets.sort((w1, w2) => compare_qualified_names(w1.innerText.match(/^[^\(]*/)[0], w2.innerText.match(/^[^\(]*/)[0])))
+            inspector.append(...new_code_buttons.sort((code1, code2) => compare_qualified_names(code1.innerText.match(/^[^\(]*/)[0], code2.innerText.match(/^[^\(]*/)[0])))
             // inspector.innerHTML = inspector_html
           }
           // console.log(hovered_elems)
@@ -636,72 +698,6 @@ function infer_types_and_attach_widgets(snp_state) {
       console.error(msg);
       old_callback(msg);
     }
-
-    // hover_regions_svg.querySelectorAll('[data-artist]').forEach(el => {
-    //   let title = el.dataset.artist + el.dataset.names
-    //   // el.addEventListener("mouseenter", ev => {
-    //   //   el.classList.add("hovered")
-    //   //   hovered_elems.addAsSet(title)
-    //   //   console.log("mouseenter")
-    //   //   console.log(hovered_elems)
-    //   // });
-    //   // el.addEventListener("mouseleave", ev => {
-    //   //   hovered_elems.removeAsSet(title)
-    //   //   el.classList.remove("hovered")
-    //   //   console.log("mouseleave")
-    //   //   console.log(hovered_elems)
-    //   // });
-    //   el.addEventListener("click", ev => {
-    //     const first_shape = el.querySelector("[stroke-width]")
-    //     if (snp_state.selected_shape == first_shape) {
-    //       deselect_all(snp_state);
-    //     } else {
-    //       deselect_all(snp_state);
-    //       select(snp_state, first_shape);
-    //       const [top, left] = relativeTopLeft(first_shape, snp_outer);
-    //       inspector.style = `
-    //         position: absolute;
-    //         top: ${top}px;
-    //         left: ${left + first_shape.getBoundingClientRect().width}px;
-    //         background: #eee;
-    //         border: solid 1px #aaa;
-    //       `.replace(/\n\s*/g, " ")
-    //       inspector.innerHTML = "";
-    //       snp_outer.appendChild(inspector);
-    //       // console.log(el.dataset);
-    //       if (el.dataset.loc) {
-    //         const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(el.dataset.loc);
-    //         const [from, to] = [ // CodeMirror locs
-    //           {line: lineno-1,     ch: col_offset},
-    //           {line: end_lineno-1, ch: end_col_offset}
-    //         ];
-    //         const code_mirror = cell.code_mirror;
-    //         // editor.innerText = code_mirror.getRange(from, to);
-    //         // const markedCodeChunk = code_mirror.markText(from, to, {css: "border: solid red 1px"});
-    //         const linked = code_mirror.linkedDoc({from: from.line, to: to.line+1});
-    //         // console.log(linked);
-    //         const code_mirror_popup = CodeMirror(inspector);
-    //         code_mirror_popup.swapDoc(linked);
-    //         snp_state.code_mirror_popup = code_mirror_popup;
-    //         linked.setSelection(from, to);
-    //         code_mirror_popup.focus();
-    //         // console.log(code_mirror_popup);
-
-    //         inspector.addEventListener("keydown", ev => {
-    //           if (ev.ctrlKey && ev.code === "Enter") {
-    //             deselect_all(snp_state);
-    //             cell.busy = false;
-    //             cell.execute();
-    //           } else {
-    //             redraw_cell(snp_outer);
-    //           }
-    //         });
-    //       }
-    //     }
-    //     // console.log(hovered_elems)
-    //     ev.stopPropagation();
-    //   });
-    // });
   };
   IPython.notebook.kernel.execute(
     `notebook_code_through_cell = ${JSON.stringify(notebook_code_through_cell)}`,
@@ -749,6 +745,12 @@ function arg_defaults_from_callee_type(callee) {
 
     return { name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type };
   }).slice(callee.def_extras.first_arg !== undefined ? 1 : 0) // ignore first arg (self) if def_extras.first_arg is defined
+}
+
+function hard_rerun(snp_state) {
+  snp_state.cell.busy = false;
+  snp_state.cell.code_mirror.getAllMarks().forEach(mark => mark.clear());
+  snp_state.cell.execute();
 }
 
 function make_call_widget(callee, given_positional_args, given_keyword_args, callee_code, code_mirror, mark, snp_state) {
@@ -821,9 +823,7 @@ function make_call_widget(callee, given_positional_args, given_keyword_args, cal
     ev.stopPropagation();
     if (ev.ctrlKey && ev.code === "Enter") {
       deselect_all(snp_state);
-      snp_state.cell.busy = false;
-      snp_state.cell.execute();
-      code_mirror.getAllMarks().forEach(mark => mark.clear());
+      hard_rerun(snp_state);
     }
   });
 
@@ -923,6 +923,7 @@ function replace_hover_regions(snp_state, new_svg_str) {
     const new_selected_shape = el_by_path(snp_state.hover_regions_svg(), old_path)
     new_selected_shape && select(snp_state, new_selected_shape)
   }
+  snp_state.snp_outer.querySelectorAll(".remove_on_new_hover_regions").forEach(el => el.remove())
 }
 
 function redraw_cell(snp_state) {
@@ -991,8 +992,7 @@ function attach_snp(snp_outer) {
     snp_outer: snp_outer,
     img: snp_outer.querySelector("img"),
     hover_regions_svg: () => snp_outer.querySelector("svg"),
-    inspector: document.createElement("div"),
-    code_mirror_popup: undefined
+    inspector: document.createElement("div")
   }
 
   infer_types_and_attach_widgets(snp_state)
