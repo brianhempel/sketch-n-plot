@@ -10,6 +10,11 @@ int_to_arg_kind = [
     "ARG_STAR2",
     "ARG_NAMED_OPT", // In an argument list, keyword-only and also optional
 ];
+// (name, type, default code)
+default_value_from_name = [
+    ["width", "builtins.float", "1.0"],
+    ["height", "builtins.float", "1.0"],
+];
 Array.prototype.addAsSet = function (elem) {
     if (!this.includes(elem)) {
         this.push(elem);
@@ -129,21 +134,11 @@ function get_cells_up_through(cell) {
     const i = cells.indexOf(cell);
     return cells.slice(0, i + 1);
 }
-// 1. gather all the code cells togther into one long code string, with comments delimiting the cells, e.g.:
-//
-// ### Cell 0 ###
-// import numpy as np
-// import matplotlib as mpl
-// import matplotlib.pyplot as plt
-// ### Cell 1 ###
-// fig, ax = plt.subplots()
-// text = ax.set_title("My Plot", pad=10)
-// plt.show(fig)
-//
-// 2. Set `notebook_code_up_through_current_cell` variable in the kernel
-// 3. Typecheck it in the kernel
-//
-function default_code_and_code_type_for_type(type) {
+function default_code_and_code_type_for_type(type, name = undefined) {
+    const [_, __, default_code] = default_value_from_name.find(([default_name, default_type, default_code]) => name === default_name && type === default_type) || [undefined, undefined, undefined];
+    if (default_code !== undefined) {
+        return [default_code, type];
+    }
     if (type === "builtins.str") {
         return ['""', type];
     }
@@ -154,10 +149,13 @@ function default_code_and_code_type_for_type(type) {
         return ["{}", type];
     }
     else if (type[".class"] === "UnionType") {
-        return default_code_and_code_type_for_type(type.items[0]);
+        return default_code_and_code_type_for_type(type.items[0], name);
     }
     else if (type[".class"] === "LiteralType" && type["fallback"] == "builtins.str") {
         return [JSON.stringify(type["value"]), type["fallback"]];
+    }
+    else if (type["type_ref"] === "matplotlib._typing.ArrayLike") {
+        return ["[1,2,3]", type];
     }
     else {
         return ["None", { ".class": "NoneType" }];
@@ -250,7 +248,7 @@ function make_el(tag, attrs, style, listeners, children) {
 }
 // options is { selected_el: el }
 function make_dropdown(sync_editor_and_output, els, options = { selected_el: undefined }) {
-    const dropdown = document.createElement("div");
+    let dropdown = document.createElement("div");
     dropdown.style.display = "inline-block";
     dropdown.style.position = "relative"; // so we can position the open dropdown
     function set_dropdown(el) {
@@ -271,7 +269,7 @@ function make_dropdown(sync_editor_and_output, els, options = { selected_el: und
         }));
         dropdown.prepend(opened_dropdown);
     }
-    const select_button = make_el("span", {}, { cursor: "pointer" }, { click: open_dropdown }, ["▾"]);
+    let select_button = make_el("span", {}, { cursor: "pointer" }, { click: open_dropdown }, ["▾"]);
     set_dropdown((options === null || options === void 0 ? void 0 : options.selected_el) || els[0]);
     dropdown.to_code = () => to_code(dropdown.selected_el);
     return dropdown;
@@ -492,6 +490,20 @@ function hide(elem) {
 function show(elem) {
     elem.classList.remove("hidden");
 }
+// 1. gather all the code cells togther into one long code string, with comments delimiting the cells, e.g.:
+//
+// ### Cell 0 ###
+// import numpy as np
+// import matplotlib as mpl
+// import matplotlib.pyplot as plt
+// ### Cell 1 ###
+// fig, ax = plt.subplots()
+// text = ax.set_title("My Plot", pad=10)
+// plt.show(fig)
+//
+// 2. Set `notebook_code_through_cell` variable in the kernel
+// 3. Typecheck it in the kernel
+//
 function infer_types_and_attach_widgets(snp_state) {
     const { cell, snp_outer, inspector } = snp_state;
     let code_cells = Jupyter.notebook.get_cells().filter(cell => cell.cell_type === "code");
@@ -521,10 +533,10 @@ function infer_types_and_attach_widgets(snp_state) {
     let old_callback = callbacks.shell.reply;
     callbacks.shell.reply = (msg) => {
         if (msg.msg_type == "execute_reply" && msg.content.status == "ok" && msg.content.user_expressions.inferred.status == "ok") {
-            console.log(msg.content.user_expressions.inferred);
+            // console.log(msg.content.user_expressions.inferred)
             const items = msg.content.user_expressions.inferred.data["application/json"];
             const cell_items = items.filter(call_info => call_info.callee.loc.line >= cell_lineno);
-            console.log(cell_items);
+            console.log("cell items", cell_items);
             // console.log(JSON.stringify(cell_items));
             let loced_widgets = loced_widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state);
             // console.log("loced_widgets", loced_widgets)
@@ -668,19 +680,19 @@ function place_over_shape(snp_state, shape, el) {
     el.style.left = `${left}px`;
 }
 function arg_defaults_from_callee_type(callee) {
-    console.log(callee);
+    // console.log(callee)
     return callee.arg_names.map((arg_name, arg_i) => {
         const arg_kind = int_to_arg_kind[callee.arg_kinds[arg_i]];
         const arg_type = callee.arg_types[arg_i];
         // Since the function parameter could be a union type, we need to indicate which of the types the actual code is.
         let arg_default_code;
         let arg_default_type;
-        if (callee["definition_arguments_default_code"]) {
-            arg_default_code = callee["definition_arguments_default_code"];
+        if (callee["definition_arguments_default_code"][arg_i]) {
+            arg_default_code = callee["definition_arguments_default_code"][arg_i];
             arg_default_type = undefined; // We don't know.
         }
         else {
-            [arg_default_code, arg_default_type] = default_code_and_code_type_for_type(arg_type);
+            [arg_default_code, arg_default_type] = default_code_and_code_type_for_type(arg_type, arg_name);
         }
         return { name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type, code_type: arg_default_type };
     }).slice(callee.def_extras.first_arg !== undefined ? 1 : 0); // ignore first arg (self) if def_extras.first_arg is defined
@@ -698,7 +710,7 @@ function make_call_widget(callee, given_positional_args, given_keyword_args, cal
     // const missing_positional_args = []
     const missing_positional_args = arg_defaults.
         slice(given_positional_args.length).
-        takeWhile(arg => arg.kind === "ARG_POS" || arg.kind === "ARG_OPT");
+        takeWhile(arg => arg.kind === "ARG_POS"); // we could also look for arg.kind === "ARG_OPT" here, but optional positional args look nicer when given as keyword args
     const missing_keyword_args = arg_defaults.
         slice(given_positional_args.length).
         slice(missing_positional_args.length).
@@ -740,7 +752,7 @@ function make_call_widget(callee, given_positional_args, given_keyword_args, cal
     widget.append("(", args_el, ")");
     widget.addEventListener("keydown", ev => {
         ev.stopPropagation();
-        if (ev.ctrlKey && ev.code === "Enter") {
+        if ( /*ev.ctrlKey && */ev.code === "Enter") {
             deselect_all(snp_state);
             hard_rerun(snp_state);
         }
@@ -771,13 +783,16 @@ function loced_widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
             inclusiveLeft: true,
         });
         let callee_code = cm.getRange(item_to_start_pos(callee), item_to_end_pos(callee));
+        let callee_has_self_arg = callee.def_extras.first_arg !== undefined;
         let given_args2 = [];
         given_args.forEach((given_arg, arg_i) => {
             const arg_kind = int_to_arg_kind[given_arg.kind];
-            const arg_i_at_func_def = given_arg["name"] ? callee.arg_names.indexOf(given_arg.name) : arg_i;
+            const arg_i_at_func_def = given_arg["name"] ? callee.arg_names.indexOf(given_arg.name) : (callee_has_self_arg ? arg_i + 1 : arg_i);
             const arg_val_code = cm.getRange(item_to_start_pos(given_arg), item_to_end_pos(given_arg));
             given_args2.push({ name: given_arg.name, kind: arg_kind, code: arg_val_code, type: callee.arg_types[arg_i_at_func_def] });
         });
+        // console.log("given_args2", given_args2)
+        // console.log("callee.arg_names", callee.arg_names)
         const [given_positional_args, given_keyword_args] = given_args2.partition(arg => !arg.name);
         // console.log(arg_defaults.map(({name, code}) => `${name}=${code}`).join(", "))
         const widget = make_call_widget(callee, given_positional_args, given_keyword_args, callee_code, cm, mark, snp_state);

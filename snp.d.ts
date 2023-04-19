@@ -3,6 +3,7 @@ declare const Jupyter: any;
 declare var ellipses_svg_html: string;
 declare var dial_svg_counter: number;
 declare var int_to_arg_kind: Array<string>;
+declare var default_value_from_name: Array<[string, any, string]>;
 interface Array<T> {
     addAsSet(elem: T): Array<T>;
     removeAsSet(elem: T): Array<T>;
@@ -17,7 +18,7 @@ declare function deselect_all(snp_state: any): void;
 declare function relativeTopLeft(el: any, container: any): number[];
 declare function relativeBoundingRect(el: any, container: any): DOMRect;
 declare function get_cells_up_through(cell: any): any;
-declare function default_code_and_code_type_for_type(type: any): [string, any];
+declare function default_code_and_code_type_for_type(type: any, name?: string | undefined): [string, any];
 declare function dial_svg_html(): string;
 declare function to_code(node: any): any;
 declare function make_el(tag: any, attrs: any, style: any, listeners: any, children: any): any;
@@ -27,7 +28,7 @@ declare type Dropdown = HTMLDivElement & ToCodeAble & {
 declare function make_dropdown(sync_editor_and_output: any, els: any, options?: {
     selected_el: any;
 }): Dropdown;
-declare function arg_to_widget(sync_editor_and_output: any, code: any, arg_type: any, code_type: any): HTMLSpanElement | Text;
+declare function arg_to_widget(sync_editor_and_output: any, code: string, arg_type: any, code_type: any): HTMLSpanElement | Text;
 declare function make_dial_and_num(sync_editor_and_output: any, code: any, change_per_px: any): HTMLSpanElement;
 declare function siblingsAfter(node: any): any[];
 declare function siblingsBefore(node: any): any[];
@@ -56,7 +57,7 @@ interface Arg {
 }
 declare function arg_defaults_from_callee_type(callee: any): Arg[];
 declare function hard_rerun(snp_state: any): void;
-declare function make_call_widget(callee: any, given_positional_args: any, given_keyword_args: any, callee_code: any, code_mirror: any, mark: any, snp_state: any): HTMLDivElement;
+declare function make_call_widget(callee: any, given_positional_args: Arg[], given_keyword_args: Arg[], callee_code: string, code_mirror: any, mark: any, snp_state: any): HTMLDivElement;
 declare function loced_widgets_from_code(cell_items: any, cell_lineno: any, cm: any, snp_state: any): any[];
 declare function tree_path(root: any, target: any): any;
 declare function el_by_path(root: any, path: any): any;
