@@ -844,7 +844,7 @@ function arg_defaults_from_callee_type(callee) : Arg[] {
 }
 
 function hard_rerun(snp_state) {
-  snp_state.cell.busy = false;
+  snp_state.busy = false;
   snp_state.cell.code_mirror.getAllMarks().forEach(mark => mark.clear());
   snp_state.cell.execute();
 }
@@ -1036,10 +1036,12 @@ function replace_hover_regions(snp_state, new_svg_str) {
 
 function redraw_cell(snp_state) {
   const { cell, img } = snp_state
-  if (cell.busy) { return; }
-  cell.busy = true;
   const codeExecuting = cell.get_text();
-  console.log(`Executing: ${codeExecuting}`)
+  if (snp_state.busy || codeExecuting === snp_state.last_cell_code_executed) { return; }
+  snp_state.busy = true;
+  snp_state.last_cell_code_executed = codeExecuting;
+  snp_state.stdout_stderr.innerHTML = ""
+  // console.log(`Executing: ${codeExecuting}`)
   // Hacktastic way to get live feedback
   const callbacks = cell.get_callbacks();
   // console.log(cell.get_callbacks())
@@ -1052,16 +1054,21 @@ function redraw_cell(snp_state) {
       // console.log(arguments);
       // cell.output_area.handle_output.apply(cell.output_area, [msg]);
       if (msg.header.msg_type === "error") {
-        console.log(msg.content.evalue)
+        // Display the error, but adjust line number for the lines we added to the top of the cell.
+        snp_state.stdout_stderr.innerText += msg.content.evalue.replaceAll(/\b(line +)(\d+)/gi, (_, line_space, n_str) => `${line_space}${parseInt(n_str) - snp_state.provenance_is_off_by_n_lines}` );
+        // console.log(msg.content.evalue)
+      } else if (msg.header.msg_type === "stream") {
+        snp_state.stdout_stderr.innerText += msg.content.text;
+        // console.log(msg.content.text)
       } else {
         console.log(arguments)
       }
     }
     if (codeExecuting != cell.get_text()) {
-      cell.busy = false;
+      snp_state.busy = false;
       redraw_cell(snp_state);
     } else {
-      cell.busy = false;
+      snp_state.busy = false;
       // console.log(msg.content.data["image/svg+xml"])
       // Replace hover regions
       if (msg.header.msg_type === "execute_result" && msg.content.data["image/svg+xml"]) {
@@ -1074,33 +1081,6 @@ function redraw_cell(snp_state) {
 }
 
 
-function get_notebook_code_through(cell_code : string) : [number, string] {
-  const code_cells = Jupyter.notebook.get_cells().filter(cell => cell.cell_type === "code")
-
-  // limit to cells up through the given cell
-  // if there are duplicate cells, go through the last cell
-  const code_cells_through_cell = code_cells.slice(0, code_cells.findLastIndex(cell => cell.get_text() === cell_code) + 1);
-  const code_cells_before_cell  = code_cells_through_cell.slice(0,-1)
-
-  function is_not_magic(code: string) {
-    return !code.startsWith("%%");
-  }
-
-  const notebook_code_before_cell =
-    code_cells_before_cell.
-        // takeWhile(cell => cell.input_prompt_number !== "*").
-        map(cell => cell.get_text()).
-        filter(is_not_magic).
-        // map((code, i) => `### Cell ${i} ###\n${code}`).
-        join("\n");
-
-  const notebook_code_through_cell = `${notebook_code_before_cell}\n${cell_code}`;
-
-  const cell_lineno = notebook_code_before_cell.split("\n").length + 1
-
-  return [cell_lineno, notebook_code_through_cell]
-}
-
 // <div class="snp_outer">
 // <img src='...'> <!-- the plot -->
 // <svg></svg> <!-- hover regions -->
@@ -1111,9 +1091,6 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
   const cell = Jupyter.notebook.get_cells().filter(cell => cell.element[0] === cell_el)[0];
   snp_outer.cell = cell
 
-  if (!cell.hasOwnProperty("busy")) { // We might be re-attaching, in which case busy is already defined and we don't want to clobber it.
-    cell.busy = false;
-  }
   // console.log("reattaching")
   // console.log(snp_outer);
   // console.log(cell_el);
@@ -1125,36 +1102,16 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
     hovered_elems: [],
     selected_shape: undefined,
     cell: cell,
+    busy: false,
+    last_cell_code_executed: cell.get_text(),
     cell_lineno: cell_lineno,
     provenance_is_off_by_n_lines: provenance_is_off_by_n_lines,
     snp_outer: snp_outer,
     img: snp_outer.querySelector("img"),
     hover_regions_svg: () => snp_outer.querySelector("svg"),
+    stdout_stderr: snp_outer.querySelector(".stdout_stderr"),
     inspector: document.createElement("div")
   }
-
-  // Eventually we will want to hoist this to a load-on-page-load thing.
-  const pre_cell_execute_handler = function (ev, {kernel, content}) {
-    const cell_code = content.code;
-
-    const [cell_lineno, notebook_code_through_cell] = get_notebook_code_through(cell_code)
-    snp_state.cell_lineno = cell_lineno
-
-    console.log({cell_lineno: cell_lineno})
-
-    content.code = `provenance_is_off_by_n_lines = 4\ncell_lineno = ${cell_lineno}\ncell_code = ${JSON.stringify(cell_code)}\nnotebook_code_through_cell = ${JSON.stringify(notebook_code_through_cell)}\n${content.code}`
-
-    console.log("execution_request.Kernel", content);
-  }
-
-  if ("pre_cell_execute_handlers_to_first_unbind_when_this_file_is_rerun" in window) {
-    for (const handler of pre_cell_execute_handlers_to_first_unbind_when_this_file_is_rerun) {
-      IPython.notebook.kernel.events.off("execution_request.Kernel", handler)
-    }
-  }
-  pre_cell_execute_handlers_to_first_unbind_when_this_file_is_rerun = [pre_cell_execute_handler]
-  IPython.notebook.kernel.events.on("execution_request.Kernel", pre_cell_execute_handler);
-  // END STUFF THAT SHOULD ON PAGE LOAD ONLY
 
   snp_outer.addEventListener("mouseenter", () => {
     snp_outer.querySelectorAll(".add_hint").forEach(show)
@@ -1282,7 +1239,6 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
       ev.stopPropagation();
     });
   });
-
 
   if ("select_lineno_after_execute" in window && select_lineno_after_execute !== undefined) {
     snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {

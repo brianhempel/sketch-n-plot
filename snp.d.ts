@@ -66,5 +66,4 @@ declare function tree_path(root: any, target: any): any;
 declare function el_by_path(root: any, path: any): any;
 declare function replace_hover_regions(snp_state: any, new_svg_str: any): void;
 declare function redraw_cell(snp_state: any): void;
-declare function get_notebook_code_through(cell_code: string): [number, string];
 declare function attach_snp(snp_outer: any, cell_lineno: any, provenance_is_off_by_n_lines: any, user_call_info: any): void;

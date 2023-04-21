@@ -587,6 +587,7 @@ class SNP():
             <style>{pathlib.Path("snp.css").read_text()}</style>
             <img style="margin: 0; border: solid 1px black;" src='{data_url}'> <!-- the plot -->
             {self._repr_svg_()} <!-- hover regions -->
+            <div class="stdout_stderr"></div>
             <style onload="attach_snp(this.closest('.snp_outer'), {self.cell_lineno}, {self.provenance_is_off_by_n_lines}, {escape_html(json.dumps(self.user_call_info))})"></style> <!-- Just a way to run this code once the elements exist. -->
             </div>
         """
