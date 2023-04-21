@@ -4,6 +4,8 @@ declare var ellipses_svg_html: string;
 declare var dial_svg_counter: number;
 declare var int_to_arg_kind: Array<string>;
 declare var default_value_from_name: Array<[string, any, string]>;
+declare var pre_cell_execute_handlers_to_first_unbind_when_this_file_is_rerun: Function[];
+declare var select_lineno_after_execute: number | undefined;
 interface Array<T> {
     addAsSet(elem: T): Array<T>;
     removeAsSet(elem: T): Array<T>;
@@ -28,7 +30,8 @@ declare type Dropdown = HTMLDivElement & ToCodeAble & {
 declare function make_dropdown(sync_editor_and_output: any, els: any, options?: {
     selected_el: any;
 }): Dropdown;
-declare function arg_to_widget(sync_editor_and_output: any, code: string, arg_type: any, code_type: any): HTMLSpanElement | Text;
+declare function arg_to_widget(sync_editor_and_output: any, code: string, arg_type: any, code_type: any, type_compatible_local_names: string[]): Node;
+declare function arg_to_widgets(sync_editor_and_output: any, code: string, arg_type: any, code_type: any): Node[];
 declare function make_dial_and_num(sync_editor_and_output: any, code: any, change_per_px: any): HTMLSpanElement;
 declare function siblingsAfter(node: any): any[];
 declare function siblingsBefore(node: any): any[];
@@ -45,7 +48,6 @@ declare function make_ellipses_el(sync_editor_and_output: any, hidden_arg_els: a
 declare function compare_qualified_names(name1: any, name2: any): number;
 declare function hide(elem: any): void;
 declare function show(elem: any): void;
-declare function infer_types_and_attach_widgets(snp_state: any): void;
 declare function place_inspector(snp_state: any): void;
 declare function place_over_shape(snp_state: any, shape: any, el: any): void;
 interface Arg {
@@ -54,6 +56,7 @@ interface Arg {
     code: string;
     type: any;
     code_type: any | undefined;
+    type_compatible_local_names: string[];
 }
 declare function arg_defaults_from_callee_type(callee: any): Arg[];
 declare function hard_rerun(snp_state: any): void;
@@ -63,4 +66,5 @@ declare function tree_path(root: any, target: any): any;
 declare function el_by_path(root: any, path: any): any;
 declare function replace_hover_regions(snp_state: any, new_svg_str: any): void;
 declare function redraw_cell(snp_state: any): void;
-declare function attach_snp(snp_outer: any): void;
+declare function get_notebook_code_through(cell_code: string): [number, string];
+declare function attach_snp(snp_outer: any, cell_lineno: any, provenance_is_off_by_n_lines: any, user_call_info: any): void;

@@ -8,6 +8,9 @@ declare var dial_svg_counter : number;
 declare var int_to_arg_kind : Array<string>;
 declare var default_value_from_name : Array<[string, any, string]>;
 
+declare var pre_cell_execute_handlers_to_first_unbind_when_this_file_is_rerun : Function[];
+declare var select_lineno_after_execute : number | undefined
+
 ellipses_svg_html = `<svg height="14pt" viewBox="0 0 14 14" width="14pt" xmlns="http://www.w3.org/2000/svg"><path d="m14 8c0 1.65685-1.3431 3-3 3h-8c-1.65685 0-2.99999935-1.34315-2.99999959-3 .00000047-1.65685 1.34314959-3 2.99999959-3h8c1.6569 0 3 1.34315 3 3z" fill="#fff"/><g fill-rule="evenodd"><path d="m3 7c.55229 0 1 .44772 1 1s-.44771 1-1 1c-.55228 0-1-.44772-1-1s.44772-1 1-1z"/><path d="m7 7c.55229 0 1 .44772 1 1s-.44771 1-1 1c-.55228 0-1-.44772-1-1s.44772-1 1-1z"/><path d="m11 7c.5523 0 1 .44772 1 1s-.4477 1-1 1-1-.44772-1-1 .4477-1 1-1z"/></g></svg>`
 
 // This is used to make sure we don't have duplicate IDs in the SVGs
@@ -343,7 +346,23 @@ function make_dropdown(sync_editor_and_output, els, options= { selected_el: unde
   return dropdown
 }
 
-function arg_to_widget(sync_editor_and_output, code : string, arg_type, code_type) {
+function arg_to_widget(sync_editor_and_output, code : string, arg_type, code_type, type_compatible_local_names : string[]) {
+  const possible_widgets = arg_to_widgets(sync_editor_and_output, code, arg_type, code_type);
+
+  for (const name of type_compatible_local_names) {
+    if (!possible_widgets.some(widget => to_code(widget) === name)) {
+      possible_widgets.push(make_el("span", {}, {}, {}, [name]))
+    }
+  }
+
+  if (possible_widgets.length === 1) {
+    return possible_widgets[0]
+  } else {
+    return make_dropdown(sync_editor_and_output, possible_widgets, { selected_el: possible_widgets.find(widget => to_code(widget) === code) })
+  }
+}
+
+function arg_to_widgets(sync_editor_and_output, code : string, arg_type, code_type) : Node[] {
   console.log(code, arg_type)
   if (arg_type[".class"] === "UnionType") {
     const items = arg_type["items"]
@@ -370,15 +389,16 @@ function arg_to_widget(sync_editor_and_output, code : string, arg_type, code_typ
       //     }
       //   ]
       // },
-      let select = document.createElement("select") as HTMLSelectElement & ToCodeAble
-      select.innerHTML = items.map(type2 => {
-        let isSelected = JSON.stringify(type2["value"]) === code;
-        return `<option${isSelected ? " selected": ""}>${JSON.stringify(type2["value"])}</option>`;
-      }).join("")
-      select.addEventListener("click", ev => { ev.stopPropagation() });
-      select.addEventListener("change", ev => { sync_editor_and_output() });
-      select.to_code = function() { return this.value; };
-      return select
+      // let select = document.createElement("select") as HTMLSelectElement & ToCodeAble
+      // select.innerHTML = items.map(type2 => {
+      //   let isSelected = JSON.stringify(type2["value"]) === code;
+      //   return `<option${isSelected ? " selected": ""}>${JSON.stringify(type2["value"])}</option>`;
+      // }).join("")
+      // select.addEventListener("click", ev => { ev.stopPropagation() });
+      // select.addEventListener("change", ev => { sync_editor_and_output() });
+      // select.to_code = function() { return this.value; };
+      // return select
+      return items.map(type2 => make_el("span", {}, {}, {}, [JSON.stringify(type2["value"])]))
     } else if (items.length === 3 && items.includes("builtins.float") && literals.length === 2 && literals.every(type2 => typeof type2.value === "number")) {
       // {
       //   ".class": "UnionType",
@@ -398,29 +418,30 @@ function arg_to_widget(sync_editor_and_output, code : string, arg_type, code_typ
       // },
       const [lo, hi] = literals.map(type2 => type2.value).sort()
       const step_per_px = [10000000000, 1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1, 0.1, 0.01, 0.001, 0.0001, 1.0e-05, 1.0e-06, 1.0e-07, 1.0e-08, 1.0e-09, 1.0e-10].find(n => (hi - lo) / n >= 30) || 0.01
-      return make_dial_and_num(sync_editor_and_output, code, step_per_px)
+      return [make_dial_and_num(sync_editor_and_output, code, step_per_px)]
     } else {
       let could_determine_given_code_type = false
       const item_widgets = items.map(item_type => {
-        if (equal_by_json(item_type, code_type)) {
+        // console.log("comparing", item_type, code_type)
+        if (equal_by_json(item_type, code_type)) { // should do this on the Python side with is_subtype
           could_determine_given_code_type = true;
-          return arg_to_widget(sync_editor_and_output, code, item_type, code_type)
+          return arg_to_widget(sync_editor_and_output, code, item_type, code_type, [])
         } else {
           const [default_code, default_code_type] = default_code_and_code_type_for_type(item_type)
-          return arg_to_widget(sync_editor_and_output, default_code, item_type, default_code_type)
+          return arg_to_widget(sync_editor_and_output, default_code, item_type, default_code_type, [])
         }
       })
       if (!could_determine_given_code_type) {
-        item_widgets.unshift(arg_to_widget(sync_editor_and_output, code, {}, {}))
+        item_widgets.unshift(arg_to_widget(sync_editor_and_output, code, {}, {}, []))
       }
-      return make_dropdown(sync_editor_and_output, item_widgets)
+      return item_widgets
     // } else {
       // return document.createTextNode(code);
     }
   } else if (arg_type === "builtins.float") {
-    return make_dial_and_num(sync_editor_and_output, code, 0.01)
+    return [make_dial_and_num(sync_editor_and_output, code, 0.01)]
   } else {
-    return document.createTextNode(code);
+    return [document.createTextNode(code)]
   }
 }
 
@@ -530,9 +551,9 @@ function make_arg_el(sync_editor_and_output, arg: Arg, options = { positional: f
     arg_el.append(remove_button)
   }
   if (options?.positional) {
-    arg_el.append(arg_to_widget(sync_editor_and_output, arg.code, arg.type, arg.code_type));
+    arg_el.append(arg_to_widget(sync_editor_and_output, arg.code, arg.type, arg.code_type, arg.type_compatible_local_names));
   } else {
-    arg_el.append(arg.name, "=", arg_to_widget(sync_editor_and_output, arg.code, arg.type, arg.code_type));
+    arg_el.append(arg.name, "=", arg_to_widget(sync_editor_and_output, arg.code, arg.type, arg.code_type, arg.type_compatible_local_names));
   }
   return arg_el;
 }
@@ -590,174 +611,174 @@ function show(elem) {
 // 2. Set `notebook_code_through_cell` variable in the kernel
 // 3. Typecheck it in the kernel
 //
-function infer_types_and_attach_widgets(snp_state) {
-  const { cell, snp_outer, inspector } = snp_state
-  let code_cells = Jupyter.notebook.get_cells().filter(cell => cell.cell_type === "code");
+// function infer_types_and_attach_widgets(snp_state) {
+//   const { cell, snp_outer, inspector } = snp_state
+//   let code_cells = Jupyter.notebook.get_cells().filter(cell => cell.cell_type === "code");
 
-  // limit to cells up through the given cell
-  let code_cells_before_cell = code_cells.slice(0, code_cells.indexOf(cell));
-  // code_cells             = code_cells.slice(0, code_cells.indexOf(cell)+1);
+//   // limit to cells up through the given cell
+//   let code_cells_before_cell = code_cells.slice(0, code_cells.indexOf(cell));
+//   // code_cells             = code_cells.slice(0, code_cells.indexOf(cell)+1);
 
-  function is_not_magic(code) {
-    return !code.startsWith("%%");
-  }
+//   function is_not_magic(code) {
+//     return !code.startsWith("%%");
+//   }
 
-  let notebook_code_before_cell =
-    code_cells_before_cell.
-        // takeWhile(cell => cell.input_prompt_number !== "*").
-        map(cell => cell.get_text()).
-        filter(is_not_magic).
-        // map((code, i) => `### Cell ${i} ###\n${code}`).
-        join("\n");
+//   let notebook_code_before_cell =
+//     code_cells_before_cell.
+//         // takeWhile(cell => cell.input_prompt_number !== "*").
+//         map(cell => cell.get_text()).
+//         filter(is_not_magic).
+//         // map((code, i) => `### Cell ${i} ###\n${code}`).
+//         join("\n");
 
-  let notebook_code_through_cell = `${notebook_code_before_cell}\n${cell.get_text()}`;
+//   let notebook_code_through_cell = `${notebook_code_before_cell}\n${cell.get_text()}`;
 
-  let cell_lineno = notebook_code_before_cell.split("\n").length + 1
+//   let cell_lineno = notebook_code_before_cell.split("\n").length + 1
 
-  console.log({cell_lineno: cell_lineno})
+//   console.log({cell_lineno: cell_lineno})
 
-  snp_outer.addEventListener("mouseenter", () => {
-    snp_outer.querySelectorAll(".add_hint").forEach(show)
-  });
+//   snp_outer.addEventListener("mouseenter", () => {
+//     snp_outer.querySelectorAll(".add_hint").forEach(show)
+//   });
 
-  snp_outer.addEventListener("mouseleave", () => {
-    snp_outer.querySelectorAll(".add_hint").forEach(hide)
-  });
+//   snp_outer.addEventListener("mouseleave", () => {
+//     snp_outer.querySelectorAll(".add_hint").forEach(hide)
+//   });
 
-  const callbacks = cell.get_callbacks();
-  const just_log  = { shell: { reply: console.log }, iopub: { output: console.log }};
-  let old_callback = callbacks.shell.reply;
-  callbacks.shell.reply = (msg) => {
-    if (msg.msg_type == "execute_reply" && msg.content.status == "ok" && msg.content.user_expressions.inferred.status == "ok") {
-      // console.log(msg.content.user_expressions.inferred)
-      const items = msg.content.user_expressions.inferred.data["application/json"];
-      const cell_items = items.filter(call_info => call_info.callee.loc.line >= cell_lineno);
-      console.log("cell items", cell_items);
-      // console.log(JSON.stringify(cell_items));
+//   const callbacks = cell.get_callbacks();
+//   const just_log  = { shell: { reply: console.log }, iopub: { output: console.log }};
+//   let old_callback = callbacks.shell.reply;
+//   callbacks.shell.reply = (msg) => {
+//     if (msg.msg_type == "execute_reply" && msg.content.status == "ok" && msg.content.user_expressions.inferred.status == "ok") {
+//       // console.log(msg.content.user_expressions.inferred)
+//       const items = msg.content.user_expressions.inferred.data["application/json"];
+//       const cell_items = items.filter(call_info => call_info.callee.loc.line >= cell_lineno);
+//       console.log("cell items", cell_items);
+//       // console.log(JSON.stringify(cell_items));
 
-      let loced_widgets = loced_widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state);
+//       let loced_widgets = loced_widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state);
 
-      // console.log("loced_widgets", loced_widgets)
+//       // console.log("loced_widgets", loced_widgets)
 
-      snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
-        const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
-        const [shape_start_pos, shape_end_pos] = [ // CodeMirror locs
-          {line: lineno-1,     ch: col_offset},
-          {line: end_lineno-1, ch: end_col_offset}
-        ];
+//       snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
+//         const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
+//         const [shape_start_pos, shape_end_pos] = [ // CodeMirror locs
+//           {line: lineno-1,     ch: col_offset},
+//           {line: end_lineno-1, ch: end_col_offset}
+//         ];
 
-        const { widget } = loced_widgets.find(({ start_pos, end_pos }) => equal_by_json([start_pos, end_pos], [shape_start_pos, shape_end_pos]))
+//         const { widget } = loced_widgets.find(({ start_pos, end_pos }) => equal_by_json([start_pos, end_pos], [shape_start_pos, shape_end_pos]))
 
-        if (widget) {
-          hover_region.addEventListener("click", ev => {
-            const first_shape = hover_region.querySelector("[stroke-width]")
-            if (snp_state.selected_shape == first_shape) {
-              deselect_all(snp_state);
-            } else {
-              deselect_all(snp_state);
-              select(snp_state, first_shape);
-              inspector.innerHTML = "";
-              snp_outer.appendChild(inspector);
-              inspector.appendChild(widget);
-            }
-            ev.stopPropagation();
-          });
-        }
-      });
+//         if (widget) {
+//           hover_region.addEventListener("click", ev => {
+//             const first_shape = hover_region.querySelector("[stroke-width]")
+//             if (snp_state.selected_shape == first_shape) {
+//               deselect_all(snp_state);
+//             } else {
+//               deselect_all(snp_state);
+//               select(snp_state, first_shape);
+//               inspector.innerHTML = "";
+//               snp_outer.appendChild(inspector);
+//               inspector.appendChild(widget);
+//             }
+//             ev.stopPropagation();
+//           });
+//         }
+//       });
 
-      snp_state.hover_regions_svg().querySelectorAll('[data-add-hint]:not([data-loc])').forEach(hover_region => {
-        let hint = document.createElement("div")
-        hint.style.display = "inline-block"
-        hint.style.borderRadius = "3px"
-        hint.style.fontSize = "10px"
-        hint.style.background = "#f4f4f4"
-        hint.style.border = "solid 1px #ddd"
-        hint.style.lineHeight = "normal"
-        hint.style.padding = "1px"
-        hint.style.cursor = "pointer"
-        hint.innerHTML = hover_region.dataset.addHint
-        hint.classList.add("add_hint")
-        hint.classList.add("remove_on_new_hover_regions")
-        snp_outer.appendChild(hint)
-        place_over_shape(snp_state, hover_region, hint)
-        hint.addEventListener("click", ev => {
-          // https://www.growingwiththeweb.com/2016/07/redirecting-dom-events.html
-          hover_region.dispatchEvent(new MouseEvent("click", ev))
-          ev.preventDefault()
-          ev.stopImmediatePropagation()
-        });
-        hide(hint)
-        // console.log(hint)
-      })
+//       snp_state.hover_regions_svg().querySelectorAll('[data-add-hint]:not([data-loc])').forEach(hover_region => {
+//         let hint = document.createElement("div")
+//         hint.style.display = "inline-block"
+//         hint.style.borderRadius = "3px"
+//         hint.style.fontSize = "10px"
+//         hint.style.background = "#f4f4f4"
+//         hint.style.border = "solid 1px #ddd"
+//         hint.style.lineHeight = "normal"
+//         hint.style.padding = "1px"
+//         hint.style.cursor = "pointer"
+//         hint.innerHTML = hover_region.dataset.addHint
+//         hint.classList.add("add_hint")
+//         hint.classList.add("remove_on_new_hover_regions")
+//         snp_outer.appendChild(hint)
+//         place_over_shape(snp_state, hover_region, hint)
+//         hint.addEventListener("click", ev => {
+//           // https://www.growingwiththeweb.com/2016/07/redirecting-dom-events.html
+//           hover_region.dispatchEvent(new MouseEvent("click", ev))
+//           ev.preventDefault()
+//           ev.stopImmediatePropagation()
+//         });
+//         hide(hint)
+//         // console.log(hint)
+//       })
 
-      snp_state.hover_regions_svg().querySelectorAll('[data-new-methods]').forEach(hover_region => {
-        if (hover_region.dataset.loc) {
-          return;
-        }
-        const methods = JSON.parse(hover_region.dataset.newMethods)
-        if (methods.length === 0) {
-          return;
-        }
+//       snp_state.hover_regions_svg().querySelectorAll('[data-new-methods]').forEach(hover_region => {
+//         if (hover_region.dataset.loc) {
+//           return;
+//         }
+//         const methods = JSON.parse(hover_region.dataset.newMethods)
+//         if (methods.length === 0) {
+//           return;
+//         }
 
-        hover_region.addEventListener("click", ev => {
-          const first_shape = hover_region.querySelector("[stroke-width]")
-          if (snp_state.selected_shape == first_shape) {
-            deselect_all(snp_state);
-          } else {
-            deselect_all(snp_state);
-            select(snp_state, first_shape);
-            inspector.innerHTML = "";
-            snp_outer.appendChild(inspector);
-            // const method_types = JSON.parse(hover_region.dataset.methodTypes);
-            // let inspector_html = `<div>${hover_region.dataset.artistNames}</div>`
-            let cm = cell.code_mirror
-            let new_code_buttons = []
-            for (const method of methods) {
-              let method_type = method.method_type
-              // let arg_defaults = arg_defaults_from_callee_type(method_type);
-              // let str = method.method_name + "(" + arg_defaults.map(({ name, kind, code, type }) => kind === "ARG_POS" ? code : name + "=" + code).join(", ") + ")"
-              let line_count = cm.getValue().split("\n").length
-              let mark = cm.markText({ line: line_count - 2, ch: 0 }, { line: line_count - 2, ch: 0 }, { inclusiveRight: true, inclusiveLeft: true, clearWhenEmpty: false }); // insert at end, for now...
-              let shortest_name = Array.from(method.receiver_names).sort(compare_qualified_names)[0]
-              let arg_defaults = arg_defaults_from_callee_type(method_type);
-              let [required_positional_arg, required_keyword_args] = arg_defaults.filter(arg => arg.kind === "ARG_POS" || arg.kind === "ARG_NAMED" ).partition(arg => arg.kind === "ARG_POS");
-              let required_positional_arg_codes = required_positional_arg.map(arg => arg.code);
-              let required_keyword_arg_codes    = required_keyword_args.map(arg => `${arg.name}=${arg.code}`);
-              let new_code = `${shortest_name}.${method.method_name}(${required_positional_arg_codes.concat(required_keyword_arg_codes).join(",")})\n`;
-              // let widget = make_call_widget(method_type, [], [], `${shortest_name}.${method.method_name}`, cm, mark, snp_state)
-              // inspector_html += `<div>${method.receiver_names[0]}.${str}</div>`
-              let new_code_button = make_el("div", {}, {}, {
-                click: ev => {
-                  const { from, to } = mark.find();
-                  // console.log(code)
-                  cm.replaceRange(new_code, from, to);
-                  hard_rerun(snp_state)
-                }
-              }, [new_code])
-              new_code_buttons.push(new_code_button)
-            }
-            // Order by shortest method call first.
-            inspector.append(...new_code_buttons.sort((code1, code2) => compare_qualified_names(code1.innerText.match(/^[^\(]*/)[0], code2.innerText.match(/^[^\(]*/)[0])))
-            // inspector.innerHTML = inspector_html
-          }
-          // console.log(hovered_elems)
-          ev.stopPropagation();
-        });
-      });
+//         hover_region.addEventListener("click", ev => {
+//           const first_shape = hover_region.querySelector("[stroke-width]")
+//           if (snp_state.selected_shape == first_shape) {
+//             deselect_all(snp_state);
+//           } else {
+//             deselect_all(snp_state);
+//             select(snp_state, first_shape);
+//             inspector.innerHTML = "";
+//             snp_outer.appendChild(inspector);
+//             // const method_types = JSON.parse(hover_region.dataset.methodTypes);
+//             // let inspector_html = `<div>${hover_region.dataset.artistNames}</div>`
+//             let cm = cell.code_mirror
+//             let new_code_buttons = []
+//             for (const method of methods) {
+//               let method_type = method.method_type
+//               // let arg_defaults = arg_defaults_from_callee_type(method_type);
+//               // let str = method.method_name + "(" + arg_defaults.map(({ name, kind, code, type }) => kind === "ARG_POS" ? code : name + "=" + code).join(", ") + ")"
+//               let line_count = cm.getValue().split("\n").length
+//               let mark = cm.markText({ line: line_count - 2, ch: 0 }, { line: line_count - 2, ch: 0 }, { inclusiveRight: true, inclusiveLeft: true, clearWhenEmpty: false }); // insert at end, for now...
+//               let shortest_name = Array.from(method.receiver_names).sort(compare_qualified_names)[0]
+//               let arg_defaults = arg_defaults_from_callee_type(method_type);
+//               let [required_positional_arg, required_keyword_args] = arg_defaults.filter(arg => arg.kind === "ARG_POS" || arg.kind === "ARG_NAMED" ).partition(arg => arg.kind === "ARG_POS");
+//               let required_positional_arg_codes = required_positional_arg.map(arg => arg.code);
+//               let required_keyword_arg_codes    = required_keyword_args.map(arg => `${arg.name}=${arg.code}`);
+//               let new_code = `${shortest_name}.${method.method_name}(${required_positional_arg_codes.concat(required_keyword_arg_codes).join(",")})\n`;
+//               // let widget = make_call_widget(method_type, [], [], `${shortest_name}.${method.method_name}`, cm, mark, snp_state)
+//               // inspector_html += `<div>${method.receiver_names[0]}.${str}</div>`
+//               let new_code_button = make_el("div", {}, {}, {
+//                 click: ev => {
+//                   const { from, to } = mark.find();
+//                   // console.log(code)
+//                   cm.replaceRange(new_code, from, to);
+//                   hard_rerun(snp_state)
+//                 }
+//               }, [new_code])
+//               new_code_buttons.push(new_code_button)
+//             }
+//             // Order by shortest method call first.
+//             inspector.append(...new_code_buttons.sort((code1, code2) => compare_qualified_names(code1.innerText.match(/^[^\(]*/)[0], code2.innerText.match(/^[^\(]*/)[0])))
+//             // inspector.innerHTML = inspector_html
+//           }
+//           // console.log(hovered_elems)
+//           ev.stopPropagation();
+//         });
+//       });
 
-    } else {
-      console.error(msg);
-      old_callback(msg);
-    }
-  };
-  IPython.notebook.kernel.execute(
-    `notebook_code_through_cell = ${JSON.stringify(notebook_code_through_cell)}`,
-    callbacks, {
-      silent: false,
-      user_expressions: { "inferred": "JsonDict(do_inference(notebook_code_through_cell))" }
-    }
-  );
-}
+//     } else {
+//       console.error(msg);
+//       old_callback(msg);
+//     }
+//   };
+//   IPython.notebook.kernel.execute(
+//     `notebook_code_through_cell = ${JSON.stringify(notebook_code_through_cell)}`,
+//     callbacks, {
+//       silent: false,
+//       user_expressions: { "inferred": "JsonDict(do_inference(notebook_code_through_cell))" }
+//     }
+//   );
+// }
 
 function place_inspector(snp_state) {
   const shape = snp_state.selected_shape;
@@ -793,6 +814,7 @@ interface Arg {
   code: string;
   type: any;
   code_type: any | undefined;
+  type_compatible_local_names: string[];
 }
 
 function arg_defaults_from_callee_type(callee) : Arg[] {
@@ -803,14 +825,21 @@ function arg_defaults_from_callee_type(callee) : Arg[] {
     // Since the function parameter could be a union type, we need to indicate which of the types the actual code is.
     let arg_default_code : string;
     let arg_default_type;
-    if (callee["definition_arguments_default_code"][arg_i]) {
-      arg_default_code = callee["definition_arguments_default_code"][arg_i];
+    if (callee.definition_arguments_default_code[arg_i]) {
+      arg_default_code = callee.definition_arguments_default_code[arg_i];
       arg_default_type = undefined; // We don't know.
     } else {
       [arg_default_code, arg_default_type] = default_code_and_code_type_for_type(arg_type, arg_name);
     }
 
-    return { name: arg_name, kind: arg_kind, code: arg_default_code, type: arg_type, code_type: arg_default_type};
+    return {
+      name:                        arg_name,
+      kind:                        arg_kind,
+      code:                        arg_default_code,
+      type:                        arg_type,
+      code_type:                   arg_default_type,
+      type_compatible_local_names: callee.arg_type_compatible_local_names[arg_i]
+    };
   }).slice(callee.def_extras.first_arg !== undefined ? 1 : 0) // ignore first arg (self) if def_extras.first_arg is defined
 }
 
@@ -929,12 +958,19 @@ function loced_widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
 
     let callee_has_self_arg = callee.def_extras.first_arg !== undefined
 
-    let given_args2 = [];
+    let given_args2 : Arg[] = [];
     given_args.forEach((given_arg, arg_i) => {
       const arg_kind = int_to_arg_kind[given_arg.kind];
       const arg_i_at_func_def = given_arg["name"] ? callee.arg_names.indexOf(given_arg.name) : (callee_has_self_arg ? arg_i + 1 : arg_i);
       const arg_val_code = cm.getRange(item_to_start_pos(given_arg), item_to_end_pos(given_arg));
-      given_args2.push({ name: given_arg.name, kind: arg_kind, code: arg_val_code, type: callee.arg_types[arg_i_at_func_def] });
+      given_args2.push({
+        name: given_arg.name,
+        kind: arg_kind,
+        code: arg_val_code,
+        type: callee.arg_types[arg_i_at_func_def],
+        code_type: undefined,
+        type_compatible_local_names: callee.arg_type_compatible_local_names[arg_i_at_func_def]
+      });
     });
 
     // console.log("given_args2", given_args2)
@@ -1031,21 +1067,48 @@ function redraw_cell(snp_state) {
       if (msg.header.msg_type === "execute_result" && msg.content.data["image/svg+xml"]) {
         replace_hover_regions(snp_state, msg.content.data["image/svg+xml"])
       }
-      infer_types_and_attach_widgets(snp_state);
+      // infer_types_and_attach_widgets(snp_state);
     }
   };
   cell.kernel.execute(codeExecuting, callbacks, {silent: false, store_history: true, stop_on_error: true});
 }
 
 
+function get_notebook_code_through(cell_code : string) : [number, string] {
+  const code_cells = Jupyter.notebook.get_cells().filter(cell => cell.cell_type === "code")
+
+  // limit to cells up through the given cell
+  // if there are duplicate cells, go through the last cell
+  const code_cells_through_cell = code_cells.slice(0, code_cells.findLastIndex(cell => cell.get_text() === cell_code) + 1);
+  const code_cells_before_cell  = code_cells_through_cell.slice(0,-1)
+
+  function is_not_magic(code: string) {
+    return !code.startsWith("%%");
+  }
+
+  const notebook_code_before_cell =
+    code_cells_before_cell.
+        // takeWhile(cell => cell.input_prompt_number !== "*").
+        map(cell => cell.get_text()).
+        filter(is_not_magic).
+        // map((code, i) => `### Cell ${i} ###\n${code}`).
+        join("\n");
+
+  const notebook_code_through_cell = `${notebook_code_before_cell}\n${cell_code}`;
+
+  const cell_lineno = notebook_code_before_cell.split("\n").length + 1
+
+  return [cell_lineno, notebook_code_through_cell]
+}
+
 // <div class="snp_outer">
 // <img src='...'> <!-- the plot -->
 // <svg></svg> <!-- hover regions -->
 // <style onload="attach_snp(this.closest('.snp_outer'))"></style> <!-- Just a way to run this code once the elements exist. -->
 // </div>
-function attach_snp(snp_outer) {
-  let cell_el = snp_outer.closest(".code_cell");
-  let cell = Jupyter.notebook.get_cells().filter(cell => cell.element[0] === cell_el)[0];
+function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_call_info) {
+  const cell_el = snp_outer.closest(".code_cell");
+  const cell = Jupyter.notebook.get_cells().filter(cell => cell.element[0] === cell_el)[0];
   snp_outer.cell = cell
 
   if (!cell.hasOwnProperty("busy")) { // We might be re-attaching, in which case busy is already defined and we don't want to clobber it.
@@ -1055,17 +1118,181 @@ function attach_snp(snp_outer) {
   // console.log(snp_outer);
   // console.log(cell_el);
   // console.log(cell);
-  let hovered_elems = [];
+  const hovered_elems = [];
 
-  let snp_state = {
+
+  const snp_state = {
     hovered_elems: [],
     selected_shape: undefined,
     cell: cell,
+    cell_lineno: cell_lineno,
+    provenance_is_off_by_n_lines: provenance_is_off_by_n_lines,
     snp_outer: snp_outer,
     img: snp_outer.querySelector("img"),
     hover_regions_svg: () => snp_outer.querySelector("svg"),
     inspector: document.createElement("div")
   }
 
-  infer_types_and_attach_widgets(snp_state)
+  // Eventually we will want to hoist this to a load-on-page-load thing.
+  const pre_cell_execute_handler = function (ev, {kernel, content}) {
+    const cell_code = content.code;
+
+    const [cell_lineno, notebook_code_through_cell] = get_notebook_code_through(cell_code)
+    snp_state.cell_lineno = cell_lineno
+
+    console.log({cell_lineno: cell_lineno})
+
+    content.code = `provenance_is_off_by_n_lines = 4\ncell_lineno = ${cell_lineno}\ncell_code = ${JSON.stringify(cell_code)}\nnotebook_code_through_cell = ${JSON.stringify(notebook_code_through_cell)}\n${content.code}`
+
+    console.log("execution_request.Kernel", content);
+  }
+
+  if ("pre_cell_execute_handlers_to_first_unbind_when_this_file_is_rerun" in window) {
+    for (const handler of pre_cell_execute_handlers_to_first_unbind_when_this_file_is_rerun) {
+      IPython.notebook.kernel.events.off("execution_request.Kernel", handler)
+    }
+  }
+  pre_cell_execute_handlers_to_first_unbind_when_this_file_is_rerun = [pre_cell_execute_handler]
+  IPython.notebook.kernel.events.on("execution_request.Kernel", pre_cell_execute_handler);
+  // END STUFF THAT SHOULD ON PAGE LOAD ONLY
+
+  snp_outer.addEventListener("mouseenter", () => {
+    snp_outer.querySelectorAll(".add_hint").forEach(show)
+  });
+
+  snp_outer.addEventListener("mouseleave", () => {
+    snp_outer.querySelectorAll(".add_hint").forEach(hide)
+  });
+
+  const { inspector } = snp_state
+  // console.log(msg.content.user_expressions.inferred)
+  const cell_items = user_call_info.filter(call_info => call_info.callee.loc.line >= cell_lineno);
+  console.log("cell items", cell_items);
+  // console.log(JSON.stringify(cell_items));
+
+  const loced_widgets = loced_widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state);
+
+  console.log("loced_widgets", loced_widgets)
+
+  snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
+    const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
+    const [shape_start_pos, shape_end_pos] = [ // line -1 to make it CodeMirror locs; + provenance_is_off_by_n_lines because our code insertion to transfer info from JS->Python happens before the provenance AST transformer.
+      {line: lineno-1-snp_state.provenance_is_off_by_n_lines,     ch: col_offset},
+      {line: end_lineno-1-snp_state.provenance_is_off_by_n_lines, ch: end_col_offset}
+    ];
+
+    console.log("shape_loc", [shape_start_pos, shape_end_pos])
+
+    const widget = loced_widgets.find(({ start_pos, end_pos }) => equal_by_json([start_pos, end_pos], [shape_start_pos, shape_end_pos]))?.widget
+
+    if (widget) {
+      hover_region.addEventListener("click", ev => {
+        const first_shape = hover_region.querySelector("[stroke-width]")
+        if (snp_state.selected_shape == first_shape) {
+          deselect_all(snp_state);
+        } else {
+          deselect_all(snp_state);
+          select(snp_state, first_shape);
+          inspector.innerHTML = "";
+          snp_outer.appendChild(inspector);
+          inspector.appendChild(widget);
+        }
+        ev.stopPropagation();
+      });
+    }
+  });
+
+  snp_state.hover_regions_svg().querySelectorAll('[data-add-hint]:not([data-loc])').forEach(hover_region => {
+    let hint = document.createElement("div")
+    hint.style.display = "inline-block"
+    hint.style.borderRadius = "3px"
+    hint.style.fontSize = "10px"
+    hint.style.background = "#f4f4f4"
+    hint.style.border = "solid 1px #ddd"
+    hint.style.lineHeight = "normal"
+    hint.style.padding = "1px"
+    hint.style.cursor = "pointer"
+    hint.innerHTML = hover_region.dataset.addHint
+    hint.classList.add("add_hint")
+    hint.classList.add("remove_on_new_hover_regions")
+    snp_outer.appendChild(hint)
+    place_over_shape(snp_state, hover_region, hint)
+    hint.addEventListener("click", ev => {
+      // https://www.growingwiththeweb.com/2016/07/redirecting-dom-events.html
+      hover_region.dispatchEvent(new MouseEvent("click", ev))
+      ev.preventDefault()
+      ev.stopImmediatePropagation()
+    });
+    hide(hint)
+    // console.log(hint)
+  })
+
+  snp_state.hover_regions_svg().querySelectorAll('[data-new-methods]').forEach(hover_region => {
+    if (hover_region.dataset.loc) {
+      return;
+    }
+    const methods = JSON.parse(hover_region.dataset.newMethods)
+    if (methods.length === 0) {
+      return;
+    }
+
+    hover_region.addEventListener("click", ev => {
+      const first_shape = hover_region.querySelector("[stroke-width]")
+      if (snp_state.selected_shape == first_shape) {
+        deselect_all(snp_state);
+      } else {
+        deselect_all(snp_state);
+        select(snp_state, first_shape);
+        inspector.innerHTML = "";
+        snp_outer.appendChild(inspector);
+        // const method_types = JSON.parse(hover_region.dataset.methodTypes);
+        // let inspector_html = `<div>${hover_region.dataset.artistNames}</div>`
+        let cm = cell.code_mirror
+        let new_code_buttons = []
+        for (const method of methods) {
+          let method_type = method.method_type
+          // let arg_defaults = arg_defaults_from_callee_type(method_type);
+          // let str = method.method_name + "(" + arg_defaults.map(({ name, kind, code, type }) => kind === "ARG_POS" ? code : name + "=" + code).join(", ") + ")"
+          let line_count = cm.getValue().split("\n").length
+          let mark = cm.markText({ line: line_count - 2, ch: 0 }, { line: line_count - 2, ch: 0 }, { inclusiveRight: true, inclusiveLeft: true, clearWhenEmpty: false }); // insert at end, for now...
+          let shortest_name = Array.from(method.receiver_names).sort(compare_qualified_names)[0]
+          let arg_defaults = arg_defaults_from_callee_type(method_type);
+          let [required_positional_arg, required_keyword_args] = arg_defaults.filter(arg => arg.kind === "ARG_POS" || arg.kind === "ARG_NAMED" ).partition(arg => arg.kind === "ARG_POS");
+          let required_positional_arg_codes = required_positional_arg.map(arg => arg.code);
+          let required_keyword_arg_codes    = required_keyword_args.map(arg => `${arg.name}=${arg.code}`);
+          let new_code = `${shortest_name}.${method.method_name}(${required_positional_arg_codes.concat(required_keyword_arg_codes).join(",")})\n`;
+          // let widget = make_call_widget(method_type, [], [], `${shortest_name}.${method.method_name}`, cm, mark, snp_state)
+          // inspector_html += `<div>${method.receiver_names[0]}.${str}</div>`
+          let new_code_button = make_el("div", {}, {}, {
+            click: ev => {
+              const { from, to } = mark.find();
+              // console.log(code)
+              cm.replaceRange(new_code, from, to);
+              select_lineno_after_execute = from.line
+              hard_rerun(snp_state)
+            }
+          }, [new_code])
+          new_code_buttons.push(new_code_button)
+        }
+        // Order by shortest method call first.
+        inspector.append(...new_code_buttons.sort((code1, code2) => compare_qualified_names(code1.innerText.match(/^[^\(]*/)[0], code2.innerText.match(/^[^\(]*/)[0])))
+        // inspector.innerHTML = inspector_html
+      }
+      // console.log(hovered_elems)
+      ev.stopPropagation();
+    });
+  });
+
+
+  if ("select_lineno_after_execute" in window && select_lineno_after_execute !== undefined) {
+    snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
+      const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
+      if (lineno-1-snp_state.provenance_is_off_by_n_lines === select_lineno_after_execute) {
+        hover_region.dispatchEvent(new MouseEvent("click"))
+        select_lineno_after_execute = undefined
+      }
+    })
+  }
+
+  // infer_types_and_attach_widgets(snp_state)
 }

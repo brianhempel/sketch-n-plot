@@ -25,7 +25,22 @@ def full_names_dict(type_node):
     names.update(type_node.names)
     return names
 
-def object_type(obj, type_graph):
+# def object_type(obj, type_graph):
+#     thing_type_node = type_graph[obj.__class__.__module__].tree
+#     name_parts = obj.__class__.__qualname__.split(".") # Handle inner nested classes correctly.
+#     for class_name in name_parts[:-1]:
+#         if class_name in thing_type_node.names:
+#             thing_type_node = thing_type_node.names[class_name].node
+#         else:
+#             print(obj.__class__.__module__, obj.__class__.__qualname__, "not found")
+#             return None
+#     last_part = name_parts[-1]
+#     if last_part in thing_type_node.names:
+#        return thing_type_node.names[last_part].type
+#     else:
+#        return None
+
+def object_type_node(obj, type_graph):
     thing_type_node = type_graph[obj.__class__.__module__].tree
     # print(obj.__class__.__module__)
     for class_name in obj.__class__.__qualname__.split("."): # Handle inner nested classes correctly.
@@ -41,7 +56,7 @@ def object_type(obj, type_graph):
 
 def tag_with_paths_deep(artist, path_str, type_graph):
   if not hasattr(artist, "_method_types"):
-    artist_type_node = object_type(artist, type_graph)
+    artist_type_node = object_type_node(artist, type_graph)
 
     if artist_type_node is not None:
 
@@ -397,7 +412,7 @@ def regions(artist):
 # setattr(matplotlib.figure.FigureBase, "snp_inspector_html", figure_snp_inspector_html)
 
 def method_type(receiver, method_name, type_graph):
-    receiver_type_node = object_type(receiver, type_graph)
+    receiver_type_node = object_type_node(receiver, type_graph)
 
     if receiver_type_node is not None:
         node = full_names_dict(receiver_type_node).get(method_name)
@@ -408,7 +423,7 @@ def method_type(receiver, method_name, type_graph):
 
 def method_type_json(receiver, method_name, type_graph):
    typ = method_type(receiver, method_name, type_graph)
-   return typ and callable_type_json(typ)
+   return typ and callable_type_json(typ, {})
 
 # # Preserve heirarchical structure so that JS mouseenter events work as intended
 def region2_to_svg_g(artist_methods_geom_children, object_names, type_graph):
@@ -482,10 +497,40 @@ def object_names(locals, user_names=None):
     return out
 
 class SNP():
-    def __init__(self, figure, locals, type_graph, user_names=None):
+    def __init__(self, figure, locals, cell_lineno, provenance_is_off_by_n_lines, notebook_code_through_cell, user_names=None):
         self.figure = figure
-        self.type_graph = type_graph
+
+        # Perform type inference
+        self.cell_lineno = cell_lineno
+        self.provenance_is_off_by_n_lines = provenance_is_off_by_n_lines
+        self.mypy_result = do_inference(notebook_code_through_cell)
+        self.type_graph = self.mypy_result.graph
+        tree = self.type_graph[module_name].tree
+
+        # Make a map of object id to object name (e.g. "fig.axes")
+        # print(user_names)
         self.object_names = object_names(locals, user_names=user_names)
+
+        # Make a map of user local names to types, things we could use for autocompleting arguments.
+        self.user_typed_locals = {}
+        for name, value in locals.items():
+          if name in user_names and name not in trivial_names and not callable(value) and name in tree.names:
+            name_type = tree.names[name].type
+            if name_type is not None:
+              self.user_typed_locals[name] = name_type
+
+        print(self.user_typed_locals)
+
+        # Gather all the type information for function calls in the notebook
+        # print(json.dumps(tree.serialize()))
+        self.user_call_info = None
+        if tree is not None:
+            # print(tree)
+            # print(mypy_result.types)
+            visitor = MyVisitor(self.mypy_result.types, self.user_typed_locals)
+            visitor.visit_mypy_file(tree)
+            self.user_call_info = visitor.out
+
         self.cached_png = None
         self.cached_svg_hover_regions = None
 
@@ -542,7 +587,7 @@ class SNP():
             <style>{pathlib.Path("snp.css").read_text()}</style>
             <img style="margin: 0; border: solid 1px black;" src='{data_url}'> <!-- the plot -->
             {self._repr_svg_()} <!-- hover regions -->
-            <style onload="attach_snp(this.closest('.snp_outer'))"></style> <!-- Just a way to run this code once the elements exist. -->
+            <style onload="attach_snp(this.closest('.snp_outer'), {self.cell_lineno}, {self.provenance_is_off_by_n_lines}, {escape_html(json.dumps(self.user_call_info))})"></style> <!-- Just a way to run this code once the elements exist. -->
             </div>
         """
         # return "<b id='asdf'>bold</b><script>console.log(IPython.notebook.notebook_name); console.log(Jupyter.notebook.get_cells()); document.querySelector('#asdf').innerHTML = '' + Jupyter.notebook.get_cells();</script>"
@@ -704,15 +749,20 @@ def to_json_dict(node, type):
         type_json_dict = dict()
     return add_loc_json(type_json_dict, node)
 
-callable_type_ex = None
-def callable_type_json(callable_type):
-    global callable_type_ex
+# callable_type_ex = None
+def callable_type_json(callable_type, user_typed_locals):
+    # global callable_type_ex
     type_json_dict = callable_type.serialize()
     if not isinstance(type_json_dict, dict): # IDK why we sometimes get a string
         type_json_dict = dict()
 
     if hasattr(callable_type, "definition") and callable_type.definition and callable_type.definition.arguments:
         type_json_dict["definition_arguments_default_code"] = [unparse_mypy_expr(arg.initializer) for arg in callable_type.definition.arguments]
+
+    type_json_dict["arg_type_compatible_local_names"] = []
+    for arg_type in callable_type.arg_types:
+      arg_names = [name for name, local_type in user_typed_locals.items() if mypy.subtypes.is_subtype(local_type, arg_type)]
+      type_json_dict["arg_type_compatible_local_names"].append(arg_names)
         # if callable_type.def_extras.get("first_arg") is not None:
         #     # remove "self"
         #     # print("removing self from", callable_type)
@@ -723,8 +773,9 @@ def callable_type_json(callable_type):
 
 
 class MyVisitor(TraverserVisitor):
-    def __init__(self, types_dict):
+    def __init__(self, types_dict, user_typed_locals):
        self.types_dict = types_dict
+       self.user_typed_locals = user_typed_locals
        self.out = []
 
     def visit_call_expr(self, node: mypy.nodes.CallExpr) -> None:
@@ -749,7 +800,7 @@ class MyVisitor(TraverserVisitor):
             # The callee_type here is partially applied (self is already removed from the argument list).
             # For consistency with places where where that is not the case, let us unapply it
             callee_type_unapplied = callee_type.definition.type
-            callee = callable_type_json(callee_type_unapplied)
+            callee = callable_type_json(callee_type_unapplied, self.user_typed_locals)
             add_loc_json(callee, node.callee)
 
             self.out.append({
@@ -789,7 +840,7 @@ class MyVisitor(TraverserVisitor):
 if "import_lineset" not in globals():
   import_lineset = set()
   fine_grained_build_manager = None
-  mypy_result = None
+  mypy_result = None # The FineGrainedBuildManager mutates this, apparently.
   fscache = None
 
 file_path = "current_notebook.py"
@@ -855,22 +906,14 @@ def do_inference(code):
     for error in mypy_result.errors:
         print(error)
 
-    tree = mypy_result.graph[module_name].tree
-    # print(json.dumps(tree.serialize()))
+    return mypy_result
 
-    if tree is not None:
-        # print(tree)
-        # print(mypy_result.types)
-        visitor = MyVisitor(mypy_result.types)
-        visitor.visit_mypy_file(tree)
-        return visitor.out
 
 if sys.argv[0] == "type_inference.py":
     for file_path in sys.argv[1:]:
         print(do_inference(open(file_path,'r').read()))
 
 
-import json
 class JsonDict():
     def __init__(self, dict):
         self.dict = dict
