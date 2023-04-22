@@ -872,10 +872,12 @@ function make_call_widget(callee, given_positional_args : Arg[], given_keyword_a
   widget.appendChild(callee_el);
 
   const sync_editor_and_output = function () {
-    const { from, to } = mark.find();
+    let { from, to } = mark.find();
     const code = to_code(widget);
     // console.log(code)
     code_mirror.replaceRange(code, from, to);
+    ({ from, to } = mark.find());
+    code_mirror.setSelection(from, to);
     snp_state && redraw_cell(snp_state);
   };
 
@@ -985,6 +987,7 @@ function loced_widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
     loced_widgets.push({
       start_pos: start_pos,
       end_pos: end_pos,
+      mark: mark,
       widget: widget
     })
   });
@@ -1140,7 +1143,7 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
 
     console.log("shape_loc", [shape_start_pos, shape_end_pos])
 
-    const widget = loced_widgets.find(({ start_pos, end_pos }) => equal_by_json([start_pos, end_pos], [shape_start_pos, shape_end_pos]))?.widget
+    const { widget, mark } = loced_widgets.find(({ start_pos, end_pos }) => equal_by_json([start_pos, end_pos], [shape_start_pos, shape_end_pos])) || { widget: undefined, mark: undefined };
 
     if (widget) {
       hover_region.addEventListener("click", ev => {
@@ -1153,6 +1156,8 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
           inspector.innerHTML = "";
           snp_outer.appendChild(inspector);
           inspector.appendChild(widget);
+          const { from, to } = mark.find();
+          cell.code_mirror.setSelection(from, to);
         }
         ev.stopPropagation();
       });
@@ -1240,14 +1245,14 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
     });
   });
 
-  if ("select_lineno_after_execute" in window && select_lineno_after_execute !== undefined) {
+  if ("select_lineno_after_execute" in window) {
     snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
       const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
       if (lineno-1-snp_state.provenance_is_off_by_n_lines === select_lineno_after_execute) {
         hover_region.dispatchEvent(new MouseEvent("click"))
-        select_lineno_after_execute = undefined
       }
     })
+    delete window.select_lineno_after_execute
   }
 
   // infer_types_and_attach_widgets(snp_state)
