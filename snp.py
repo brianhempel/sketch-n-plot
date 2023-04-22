@@ -576,6 +576,14 @@ class SNP():
 
         return self.cached_svg_hover_regions
 
+    # This is only the technical info for the front end.
+    def _repr_json_(self):
+       return {
+          "cell_lineno": self.cell_lineno,
+          "provenance_is_off_by_n_lines": self.provenance_is_off_by_n_lines,
+          "user_call_info": self.user_call_info,
+       }
+
     def _repr_html_(self):
         # ripped the below from ipympl/backend_nbagg.py
         base64_image = base64.b64encode(self._repr_png_()).decode('utf-8')

@@ -918,8 +918,12 @@ function redraw_cell(snp_state) {
             snp_state.busy = false;
             // console.log(msg.content.data["image/svg+xml"])
             // Replace hover regions
-            if (msg.header.msg_type === "execute_result" && msg.content.data["image/svg+xml"]) {
+            if (msg.header.msg_type === "execute_result" && msg.content.data["image/svg+xml"] && msg.content.data["application/json"]) {
                 replace_hover_regions(snp_state, msg.content.data["image/svg+xml"]);
+                const json = msg.content.data["application/json"];
+                snp_state.cell_lineno = json.cell_lineno;
+                snp_state.provenance_is_off_by_n_lines = json.provenance_is_off_by_n_lines;
+                attach_widgets_to_hover_regions(snp_state, json.user_call_info);
             }
             // infer_types_and_attach_widgets(snp_state);
         }
@@ -960,7 +964,20 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
     snp_outer.addEventListener("mouseleave", () => {
         snp_outer.querySelectorAll(".add_hint").forEach(hide);
     });
-    const { inspector } = snp_state;
+    attach_widgets_to_hover_regions(snp_state, user_call_info);
+    if ("select_lineno_after_execute" in window) {
+        snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
+            const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
+            if (lineno - 1 - snp_state.provenance_is_off_by_n_lines === select_lineno_after_execute) {
+                hover_region.dispatchEvent(new MouseEvent("click"));
+            }
+        });
+        delete window.select_lineno_after_execute;
+    }
+    // infer_types_and_attach_widgets(snp_state)
+}
+function attach_widgets_to_hover_regions(snp_state, user_call_info) {
+    const { inspector, cell_lineno, cell, snp_outer } = snp_state;
     // console.log(msg.content.user_expressions.inferred)
     const cell_items = user_call_info.filter(call_info => call_info.callee.loc.line >= cell_lineno);
     console.log("cell items", cell_items);
@@ -973,7 +990,7 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
             { line: lineno - 1 - snp_state.provenance_is_off_by_n_lines, ch: col_offset },
             { line: end_lineno - 1 - snp_state.provenance_is_off_by_n_lines, ch: end_col_offset }
         ];
-        console.log("shape_loc", [shape_start_pos, shape_end_pos]);
+        // console.log("shape_loc", [shape_start_pos, shape_end_pos])
         const { widget, mark } = loced_widgets.find(({ start_pos, end_pos }) => equal_by_json([start_pos, end_pos], [shape_start_pos, shape_end_pos])) || { widget: undefined, mark: undefined };
         if (widget) {
             hover_region.addEventListener("click", ev => {
@@ -1073,15 +1090,5 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
             ev.stopPropagation();
         });
     });
-    if ("select_lineno_after_execute" in window) {
-        snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
-            const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
-            if (lineno - 1 - snp_state.provenance_is_off_by_n_lines === select_lineno_after_execute) {
-                hover_region.dispatchEvent(new MouseEvent("click"));
-            }
-        });
-        delete window.select_lineno_after_execute;
-    }
-    // infer_types_and_attach_widgets(snp_state)
 }
 //# sourceMappingURL=snp.js.map

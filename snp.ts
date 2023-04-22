@@ -1074,8 +1074,12 @@ function redraw_cell(snp_state) {
       snp_state.busy = false;
       // console.log(msg.content.data["image/svg+xml"])
       // Replace hover regions
-      if (msg.header.msg_type === "execute_result" && msg.content.data["image/svg+xml"]) {
+      if (msg.header.msg_type === "execute_result" && msg.content.data["image/svg+xml"] && msg.content.data["application/json"]) {
         replace_hover_regions(snp_state, msg.content.data["image/svg+xml"])
+        const json = msg.content.data["application/json"];
+        snp_state.cell_lineno = json.cell_lineno
+        snp_state.provenance_is_off_by_n_lines = json.provenance_is_off_by_n_lines
+        attach_widgets_to_hover_regions(snp_state, json.user_call_info)
       }
       // infer_types_and_attach_widgets(snp_state);
     }
@@ -1124,30 +1128,44 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
     snp_outer.querySelectorAll(".add_hint").forEach(hide)
   });
 
-  const { inspector } = snp_state
+  attach_widgets_to_hover_regions(snp_state, user_call_info)
+
+  if ("select_lineno_after_execute" in window) {
+    snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
+      const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
+      if (lineno-1-snp_state.provenance_is_off_by_n_lines === select_lineno_after_execute) {
+        hover_region.dispatchEvent(new MouseEvent("click"))
+      }
+    })
+    delete window.select_lineno_after_execute
+  }
+
+  // infer_types_and_attach_widgets(snp_state)
+}
+
+function attach_widgets_to_hover_regions(snp_state, user_call_info) {
+  const { inspector, cell_lineno, cell, snp_outer } = snp_state
   // console.log(msg.content.user_expressions.inferred)
-  const cell_items = user_call_info.filter(call_info => call_info.callee.loc.line >= cell_lineno);
+  const cell_items = user_call_info.filter(call_info => call_info.callee.loc.line >= cell_lineno)
   console.log("cell items", cell_items);
   // console.log(JSON.stringify(cell_items));
+  const loced_widgets = loced_widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state)
 
-  const loced_widgets = loced_widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state);
-
-  console.log("loced_widgets", loced_widgets)
+  console.log("loced_widgets", loced_widgets);
 
   snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
-    const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
-    const [shape_start_pos, shape_end_pos] = [ // line -1 to make it CodeMirror locs; + provenance_is_off_by_n_lines because our code insertion to transfer info from JS->Python happens before the provenance AST transformer.
-      {line: lineno-1-snp_state.provenance_is_off_by_n_lines,     ch: col_offset},
-      {line: end_lineno-1-snp_state.provenance_is_off_by_n_lines, ch: end_col_offset}
+    const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc)
+    const [shape_start_pos, shape_end_pos] = [
+      { line: lineno - 1 - snp_state.provenance_is_off_by_n_lines, ch: col_offset },
+      { line: end_lineno - 1 - snp_state.provenance_is_off_by_n_lines, ch: end_col_offset }
     ];
 
-    console.log("shape_loc", [shape_start_pos, shape_end_pos])
-
+    // console.log("shape_loc", [shape_start_pos, shape_end_pos])
     const { widget, mark } = loced_widgets.find(({ start_pos, end_pos }) => equal_by_json([start_pos, end_pos], [shape_start_pos, shape_end_pos])) || { widget: undefined, mark: undefined };
 
     if (widget) {
       hover_region.addEventListener("click", ev => {
-        const first_shape = hover_region.querySelector("[stroke-width]")
+        const first_shape = hover_region.querySelector("[stroke-width]");
         if (snp_state.selected_shape == first_shape) {
           deselect_all(snp_state);
         } else {
@@ -1165,41 +1183,41 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
   });
 
   snp_state.hover_regions_svg().querySelectorAll('[data-add-hint]:not([data-loc])').forEach(hover_region => {
-    let hint = document.createElement("div")
-    hint.style.display = "inline-block"
-    hint.style.borderRadius = "3px"
-    hint.style.fontSize = "10px"
-    hint.style.background = "#f4f4f4"
-    hint.style.border = "solid 1px #ddd"
-    hint.style.lineHeight = "normal"
-    hint.style.padding = "1px"
-    hint.style.cursor = "pointer"
-    hint.innerHTML = hover_region.dataset.addHint
-    hint.classList.add("add_hint")
-    hint.classList.add("remove_on_new_hover_regions")
-    snp_outer.appendChild(hint)
-    place_over_shape(snp_state, hover_region, hint)
+    let hint = document.createElement("div");
+    hint.style.display = "inline-block";
+    hint.style.borderRadius = "3px";
+    hint.style.fontSize = "10px";
+    hint.style.background = "#f4f4f4";
+    hint.style.border = "solid 1px #ddd";
+    hint.style.lineHeight = "normal";
+    hint.style.padding = "1px";
+    hint.style.cursor = "pointer";
+    hint.innerHTML = hover_region.dataset.addHint;
+    hint.classList.add("add_hint");
+    hint.classList.add("remove_on_new_hover_regions");
+    snp_outer.appendChild(hint);
+    place_over_shape(snp_state, hover_region, hint);
     hint.addEventListener("click", ev => {
       // https://www.growingwiththeweb.com/2016/07/redirecting-dom-events.html
-      hover_region.dispatchEvent(new MouseEvent("click", ev))
-      ev.preventDefault()
-      ev.stopImmediatePropagation()
+      hover_region.dispatchEvent(new MouseEvent("click", ev));
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
     });
-    hide(hint)
+    hide(hint);
     // console.log(hint)
-  })
+  });
 
   snp_state.hover_regions_svg().querySelectorAll('[data-new-methods]').forEach(hover_region => {
     if (hover_region.dataset.loc) {
       return;
     }
-    const methods = JSON.parse(hover_region.dataset.newMethods)
+    const methods = JSON.parse(hover_region.dataset.newMethods);
     if (methods.length === 0) {
       return;
     }
 
     hover_region.addEventListener("click", ev => {
-      const first_shape = hover_region.querySelector("[stroke-width]")
+      const first_shape = hover_region.querySelector("[stroke-width]");
       if (snp_state.selected_shape == first_shape) {
         deselect_all(snp_state);
       } else {
@@ -1209,19 +1227,19 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
         snp_outer.appendChild(inspector);
         // const method_types = JSON.parse(hover_region.dataset.methodTypes);
         // let inspector_html = `<div>${hover_region.dataset.artistNames}</div>`
-        let cm = cell.code_mirror
-        let new_code_buttons = []
+        let cm = cell.code_mirror;
+        let new_code_buttons = [];
         for (const method of methods) {
-          let method_type = method.method_type
+          let method_type = method.method_type;
           // let arg_defaults = arg_defaults_from_callee_type(method_type);
           // let str = method.method_name + "(" + arg_defaults.map(({ name, kind, code, type }) => kind === "ARG_POS" ? code : name + "=" + code).join(", ") + ")"
-          let line_count = cm.getValue().split("\n").length
+          let line_count = cm.getValue().split("\n").length;
           let mark = cm.markText({ line: line_count - 2, ch: 0 }, { line: line_count - 2, ch: 0 }, { inclusiveRight: true, inclusiveLeft: true, clearWhenEmpty: false }); // insert at end, for now...
-          let shortest_name = Array.from(method.receiver_names).sort(compare_qualified_names)[0]
+          let shortest_name = Array.from(method.receiver_names).sort(compare_qualified_names)[0];
           let arg_defaults = arg_defaults_from_callee_type(method_type);
-          let [required_positional_arg, required_keyword_args] = arg_defaults.filter(arg => arg.kind === "ARG_POS" || arg.kind === "ARG_NAMED" ).partition(arg => arg.kind === "ARG_POS");
+          let [required_positional_arg, required_keyword_args] = arg_defaults.filter(arg => arg.kind === "ARG_POS" || arg.kind === "ARG_NAMED").partition(arg => arg.kind === "ARG_POS");
           let required_positional_arg_codes = required_positional_arg.map(arg => arg.code);
-          let required_keyword_arg_codes    = required_keyword_args.map(arg => `${arg.name}=${arg.code}`);
+          let required_keyword_arg_codes = required_keyword_args.map(arg => `${arg.name}=${arg.code}`);
           let new_code = `${shortest_name}.${method.method_name}(${required_positional_arg_codes.concat(required_keyword_arg_codes).join(",")})\n`;
           // let widget = make_call_widget(method_type, [], [], `${shortest_name}.${method.method_name}`, cm, mark, snp_state)
           // inspector_html += `<div>${method.receiver_names[0]}.${str}</div>`
@@ -1230,30 +1248,19 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
               const { from, to } = mark.find();
               // console.log(code)
               cm.replaceRange(new_code, from, to);
-              select_lineno_after_execute = from.line
-              hard_rerun(snp_state)
+              select_lineno_after_execute = from.line;
+              hard_rerun(snp_state);
             }
-          }, [new_code])
-          new_code_buttons.push(new_code_button)
+          }, [new_code]);
+          new_code_buttons.push(new_code_button);
         }
         // Order by shortest method call first.
-        inspector.append(...new_code_buttons.sort((code1, code2) => compare_qualified_names(code1.innerText.match(/^[^\(]*/)[0], code2.innerText.match(/^[^\(]*/)[0])))
+        inspector.append(...new_code_buttons.sort((code1, code2) => compare_qualified_names(code1.innerText.match(/^[^\(]*/)[0], code2.innerText.match(/^[^\(]*/)[0])));
         // inspector.innerHTML = inspector_html
       }
       // console.log(hovered_elems)
       ev.stopPropagation();
     });
   });
-
-  if ("select_lineno_after_execute" in window) {
-    snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
-      const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
-      if (lineno-1-snp_state.provenance_is_off_by_n_lines === select_lineno_after_execute) {
-        hover_region.dispatchEvent(new MouseEvent("click"))
-      }
-    })
-    delete window.select_lineno_after_execute
-  }
-
-  // infer_types_and_attach_widgets(snp_state)
 }
+
