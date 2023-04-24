@@ -55,57 +55,57 @@ def object_type_node(obj, type_graph):
 
 
 def tag_with_paths_deep(artist, path_str, type_graph):
-  if not hasattr(artist, "_method_types"):
-    artist_type_node = object_type_node(artist, type_graph)
+    if not hasattr(artist, "_method_types"):
+        artist_type_node = object_type_node(artist, type_graph)
 
-    if artist_type_node is not None:
+        if artist_type_node is not None:
 
-    #   callable_type_json(callee_type)
-    #   names = list(full_names_dict(artist_type_node).keys())
-    #   try:
-        artist._method_types = {name: callable_type_json(thing.type) for name, thing in full_names_dict(artist_type_node).items() if isinstance(thing.type, mypy.types.CallableType) and name not in trivial_names}
+        #   callable_type_json(callee_type)
+        #   names = list(full_names_dict(artist_type_node).keys())
+        #   try:
+            artist._method_types = {name: callable_type_json(thing.type) for name, thing in full_names_dict(artist_type_node).items() if isinstance(thing.type, mypy.types.CallableType) and name not in trivial_names}
+            # print(entry)
+        #   except:
+            # print(path_str)
+            # pass # can't set new attrs on primitives
+
+        # print(thing.names)
+
+    if hasattr(artist, "_snp_names"):
+        if path_str not in artist._snp_names:
+            artist._snp_names.add(path_str)
         # print(entry)
-    #   except:
-        # print(path_str)
-        # pass # can't set new attrs on primitives
-
-    # print(thing.names)
-
-  if hasattr(artist, "_snp_names"):
-    if path_str not in artist._snp_names:
-      artist._snp_names.add(path_str)
-    # print(entry)
-  else:
-    try:
-      artist._snp_names = {path_str}
-      # print(entry)
-    except:
-      print(path_str)
-      pass # can't set new attrs on primitives
+    else:
+        try:
+            artist._snp_names = {path_str}
+            # print(entry)
+        except:
+            print(path_str)
+            pass # can't set new attrs on primitives
 
   # out += textbox("_suptitle", artist._suptitle)
-  children = artist.get_children()
+    children = artist.get_children()
 
-  with mpl._api.deprecation.suppress_matplotlib_deprecation_warning():
-    for name in dir(artist):
-      # print(path_str, name)
-      # if not name.startswith("_"):
-      if name not in trivial_names:
-        value = getattr(artist, name)
-        if not callable(value):
-          if isinstance(value, list):
-            for i, item in enumerate(value):
-              if item in children:
-                tag_with_paths_deep(item, path_str + "." + name + "[" + str(i) + "]", type_graph)
-          else:
-            if value in children:
-              tag_with_paths_deep(value, path_str + "." + name, type_graph)
+    with mpl._api.deprecation.suppress_matplotlib_deprecation_warning():
+        for name in dir(artist):
+          # print(path_str, name)
+          # if not name.startswith("_"):
+            if name not in trivial_names:
+                value = getattr(artist, name)
+                if not callable(value):
+                    if isinstance(value, list):
+                        for i, item in enumerate(value):
+                            if item in children:
+                                tag_with_paths_deep(item, path_str + "." + name + "[" + str(i) + "]", type_graph)
+                    else:
+                        if value in children:
+                            tag_with_paths_deep(value, path_str + "." + name, type_graph)
 
 def flatten(lists):
     return sum(lists, []) # https://stackoverflow.com/a/952946
 
 def remove_nones(iter):
-  return [x for x in iter if x is not None]
+    return [x for x in iter if x is not None]
 
 def all_artists(artist):
     if "get_children" in dir(artist):
@@ -117,223 +117,223 @@ import shapely
 
 # returns shapely.Polygon
 def mpl_bbox_to_shapely(bbox):
-  return shapely.box(*bbox.extents)
+    return shapely.box(*bbox.extents)
 
 # returns numpy ndarray of [xmin, ymin, xmax, ymax]
 def total_bounds(geometries):
-  return shapely.total_bounds(shapely.GeometryCollection(geometries))
+    return shapely.total_bounds(shapely.GeometryCollection(geometries))
 
 # returns shapely.Polygon
 def total_bbox(geometries):
-  return shapely.box(*total_bounds(geometries))
+    return shapely.box(*total_bounds(geometries))
 
 # returns list of (artist, shapley.Geometry)
 def flatten_regions(artist_geom_children):
-  artist, geom, children = artist_geom_children
-  return [(artist, geom)] + flatten([flatten_regions(child) for child in children])
+    artist, geom, children = artist_geom_children
+    return [(artist, geom)] + flatten([flatten_regions(child) for child in children])
 
 # returns list of (obj_id, shapley.Geometry)
 def flatten_regions2(objid_methods_geom_children):
-  obj_id, methods, geom, children = objid_methods_geom_children
-  return [(obj_id, geom)] + flatten([flatten_regions2(child) for child in children])
+    obj_id, methods, geom, children = objid_methods_geom_children
+    return [(obj_id, geom)] + flatten([flatten_regions2(child) for child in children])
 
-# Return list of (code to access artist on which to place the method UI, method name on the root artist)
+# Return list of (code to access artist on which to place the method UI, method name on the root artist, number of times method could be called)
 def method_associations(artist):
     match artist:
         case mpl.axes.Axes():
             return [
-               (".title",       "set_title"),
-               (".xaxis.label", "set_xlabel"),
-               (".yaxis.label", "set_ylabel"),
-               ("",             "bar"),
-               ("",             "barh"),
-               ("",             "plot"),
+               (".title",       "set_title",  1),
+               (".xaxis.label", "set_xlabel", 1),
+               (".yaxis.label", "set_ylabel", 1),
+               ("",             "bar",        float("inf")),
+               ("",             "barh",       float("inf")),
+               ("",             "plot",       float("inf")),
             ]
         case mpl.axis.Axis():
-            return [(".label", "set_label_text")]
+            return [(".label", "set_label_text", 1)]
         case _:
             return []
 
 # Make sure to render before calling this.
 # returns (artist, list of (artist, method_name), shapley.Geometry, children)
 def regions2(artist):
-  child_pad = 3
+    child_pad = 3
 
-  if "get_children" in dir(artist):
-    children = artist.get_children()
-    # Axes get_children() flattens its container children. Unflatten.
-    if isinstance(artist, mpl.axes.Axes):
-      containers = artist.containers
-      container_children = flatten([container.get_children() for container in containers])
-      children = [child for child in children if child not in container_children] # remove items in containers
-      children += containers # add the containers instead
-  else:
-    children = []
+    if "get_children" in dir(artist):
+        children = artist.get_children()
+        # Axes get_children() flattens its container children. Unflatten.
+        if isinstance(artist, mpl.axes.Axes):
+            containers = artist.containers
+            container_children = flatten([container.get_children() for container in containers])
+            children = [child for child in children if child not in container_children] # remove items in containers
+            children += containers # add the containers instead
+    else:
+        children = []
 
-  match artist:
-    case mpl.axis.Tick():
-      # Remove invisible tick text (i.e. the rarely used label2, which is mispositioned when not actively used.)
-      children = [child for child in children if child.get_visible()]
+    match artist:
+        case mpl.axis.Tick():
+            # Remove invisible tick text (i.e. the rarely used label2, which is mispositioned when not actively used.)
+            children = [child for child in children if child.get_visible()]
 
-  child_regions      = remove_nones([regions2(child) for child in children])
-  child_regions_flat = flatten([flatten_regions2(child_region) for child_region in child_regions])
-  child_geoms        = [geom for _, geom in child_regions_flat]
+    child_regions      = remove_nones([regions2(child) for child in children])
+    child_regions_flat = flatten([flatten_regions2(child_region) for child_region in child_regions])
+    child_geoms        = [geom for _, geom in child_regions_flat]
 
-  # print(artist)
-  match artist:
-    case mpl.text.Text() as text:
-      # based on mpl text.py contains
-      bbox = mpl.text.Text.get_window_extent(text)
-      my_geom = mpl_bbox_to_shapely(bbox)
-    case mpl.patches.Rectangle() as rect:
-      bbox = rect.get_window_extent()
-      my_geom = mpl_bbox_to_shapely(bbox)
-    case mpl.lines.Line2D() as line:
-      # based on mpl lines.py contains
-      if line._xy is None or len(line._xy) == 0:
-        # print("line has no path: " + str(line))
-        my_geom = None
-      else:
-        transformed_path = line._get_transformed_path()
-        path = transformed_path.get_fully_transformed_path()
-        if len(path.vertices) >= 2:
-          line_string = shapely.LineString(path.vertices)
-          my_geom = shapely.buffer(line_string, child_pad + line.get_linewidth(), quad_segs=1, cap_style='square', join_style='mitre') # expand outward
-        elif len(path.vertices) == 1:
-          d = 10 + line.get_linewidth()
-          my_geom = shapely.box(
-            path.vertices[0,0] - d,
-            path.vertices[0,1] - d,
-            path.vertices[0,0] + d,
-            path.vertices[0,1] + d,
-          )
-        else:
-          print("a;sdkjf;laskdj;lsaknvad")
-    case mpl.axes.Axes():
-      my_geom = None
-    case _:
-      # print("regions(): unknown artist: " + str(artist))
-      my_geom = None
+    # print(artist)
+    match artist:
+        case mpl.text.Text() as text:
+            # based on mpl text.py contains
+            bbox = mpl.text.Text.get_window_extent(text)
+            my_geom = mpl_bbox_to_shapely(bbox)
+        case mpl.patches.Rectangle() as rect:
+            bbox = rect.get_window_extent()
+            my_geom = mpl_bbox_to_shapely(bbox)
+        case mpl.lines.Line2D() as line:
+            # based on mpl lines.py contains
+            if line._xy is None or len(line._xy) == 0:
+                # print("line has no path: " + str(line))
+                my_geom = None
+            else:
+                transformed_path = line._get_transformed_path()
+                path = transformed_path.get_fully_transformed_path()
+                if len(path.vertices) >= 2:
+                    line_string = shapely.LineString(path.vertices)
+                    my_geom = shapely.buffer(line_string, child_pad + line.get_linewidth(), quad_segs=1, cap_style='square', join_style='mitre') # expand outward
+                elif len(path.vertices) == 1:
+                    d = 10 + line.get_linewidth()
+                    my_geom = shapely.box(
+                        path.vertices[0,0] - d,
+                        path.vertices[0,1] - d,
+                        path.vertices[0,0] + d,
+                        path.vertices[0,1] + d,
+                    )
+                else:
+                    print("a;sdkjf;laskdj;lsaknvad")
+        case mpl.axes.Axes():
+            my_geom = None
+        case _:
+            # print("regions(): unknown artist: " + str(artist))
+            my_geom = None
 
-  if my_geom is None and len(child_geoms) == 0:
-    return None
-  elif my_geom is None:
-    my_geom = total_bbox(child_geoms)
-  else:
-    my_geom = shapely.union_all([my_geom, total_bbox(child_geoms)])
+    if my_geom is None and len(child_geoms) == 0:
+        return None
+    elif my_geom is None:
+        my_geom = total_bbox(child_geoms)
+    else:
+        my_geom = shapely.union_all([my_geom, total_bbox(child_geoms)])
 
-  my_geom = shapely.buffer(my_geom, child_pad, quad_segs = 1, cap_style='square', join_style='mitre') # expand by 10px
+    my_geom = shapely.buffer(my_geom, child_pad, quad_segs = 1, cap_style='square', join_style='mitre') # expand by 10px
 
-  # my_methods_to_place_on_children = method_associations(artist)
+    # my_methods_to_place_on_children = method_associations(artist)
 
-  my_region = (artist, [], my_geom, child_regions)
+    my_region = (artist, [], my_geom, child_regions)
 
-  # mutates the array on the appropriate descendant
-  def put_method_on_child(method, target, region, max_search_depth):
-    artist, artist_methods, geom, child_regions = region
+    # mutates the array on the appropriate descendant
+    def put_method_on_child(method, target, region, max_search_depth):
+        artist, artist_methods, geom, child_regions = region
 
-    if artist == target:
-      artist_methods.append(method)
-    elif max_search_depth > 0:
-      for child_region in child_regions:
-        put_method_on_child(method, target, child_region, max_search_depth - 1)
+        if artist == target:
+            artist_methods.append(method)
+        elif max_search_depth > 0:
+            for child_region in child_regions:
+                put_method_on_child(method, target, child_region, max_search_depth - 1)
 
-  for code_to_access_target, my_method_name in method_associations(artist):
-    target = eval("artist" + code_to_access_target)
-    max_search_depth = len(code_to_access_target.split(".")) + 1
-    put_method_on_child((artist, my_method_name), target, my_region, max_search_depth)
+    for code_to_access_target, my_method_name, max_calls in method_associations(artist):
+        target = eval("artist" + code_to_access_target)
+        max_search_depth = len(code_to_access_target.split(".")) + 1
+        put_method_on_child((artist, my_method_name), target, my_region, max_search_depth)
 
 
-  # # mutates the array on the appropriate descendant
-  # def put_method_on_child(method_for_child, target_child, child_regions, max_search_depth):
-  #   if max_search_depth <= 0:
-  #      return
+    # # mutates the array on the appropriate descendant
+    # def put_method_on_child(method_for_child, target_child, child_regions, max_search_depth):
+    #   if max_search_depth <= 0:
+    #      return
 
-  #   for child_artist, methods_to_show_on_child, child_geom, grandchild_regions in child_regions:
-  #     if child_artist == target_child:
-  #       methods_to_show_on_child.append(method_for_child)
-  #     put_method_on_child(method_for_child, target_child, grandchild_regions, max_search_depth-1)
+    #   for child_artist, methods_to_show_on_child, child_geom, grandchild_regions in child_regions:
+    #     if child_artist == target_child:
+    #       methods_to_show_on_child.append(method_for_child)
+    #     put_method_on_child(method_for_child, target_child, grandchild_regions, max_search_depth-1)
 
-  #   return
+    #   return
 
-  # for code_to_access_child, my_method_name in method_associations(artist):
-  #   target_child = eval("artist" + code_to_access_child)
-  #   max_search_depth = len(code_to_access_child.split("."))
-  #   put_method_on_child((artist, my_method_name), target_child, child_regions, max_search_depth)
+    # for code_to_access_child, my_method_name in method_associations(artist):
+    #   target_child = eval("artist" + code_to_access_child)
+    #   max_search_depth = len(code_to_access_child.split("."))
+    #   put_method_on_child((artist, my_method_name), target_child, child_regions, max_search_depth)
 
-#   def put_methods_on_child(child_region):
-#     child_artist, methods_to_show_on_child, child_geom, grandchild_regions = child_region
-#     methods_for_child = [(artist, method_name) for desired_graphical_target, method_name in my_methods_to_place_on_children if desired_graphical_target == child_artist]
-#     return (child_artist, methods_to_show_on_child + methods_for_child, child_geom, grandchild_regions)
+#     def put_methods_on_child(child_region):
+#       child_artist, methods_to_show_on_child, child_geom, grandchild_regions = child_region
+#       methods_for_child = [(artist, method_name) for desired_graphical_target, method_name in my_methods_to_place_on_children if desired_graphical_target == child_artist]
+#       return (child_artist, methods_to_show_on_child + methods_for_child, child_geom, grandchild_regions)
 
-#   child_regions = [put_methods_on_child(child_region) for child_region in child_regions]
+#     child_regions = [put_methods_on_child(child_region) for child_region in child_regions]
 
-  return my_region
+    return my_region
 
 # Make sure to render before calling this.
 # returns (artist, shapley.Geometry, children)
 def regions(artist):
-  child_pad = 3
+    child_pad = 3
 
-  if "get_children" in dir(artist):
-    children = artist.get_children()
-  else:
-    children = []
+    if "get_children" in dir(artist):
+        children = artist.get_children()
+    else:
+        children = []
 
-  match artist:
-    case mpl.axis.Tick():
-      # Remove invisible tick text (i.e. the rarely used label2, which is mispositioned when not actively used.)
-      children = [child for child in children if child.get_visible()]
+    match artist:
+        case mpl.axis.Tick():
+            # Remove invisible tick text (i.e. the rarely used label2, which is mispositioned when not actively used.)
+            children = [child for child in children if child.get_visible()]
 
-  child_regions      = remove_nones([regions(child) for child in children])
-  child_regions_flat = flatten([flatten_regions(child_region) for child_region in child_regions])
-  child_geoms        = [geom for _, geom in child_regions_flat]
+    child_regions      = remove_nones([regions(child) for child in children])
+    child_regions_flat = flatten([flatten_regions(child_region) for child_region in child_regions])
+    child_geoms        = [geom for _, geom in child_regions_flat]
 
-  # print(artist)
-  match artist:
-    case mpl.text.Text() as text:
-      # based on mpl text.py contains
-      bbox = mpl.text.Text.get_window_extent(text)
-      my_geom = mpl_bbox_to_shapely(bbox)
-    case mpl.patches.Rectangle() as rect:
-      my_geom = mpl_bbox_to_shapely(rect.get_bbox())
-    case mpl.lines.Line2D() as line:
-      # based on mpl lines.py contains
-      if line._xy is None or len(line._xy) == 0:
-        # print("line has no path: " + str(line))
-        my_geom = None
-      else:
-        transformed_path = line._get_transformed_path()
-        path = transformed_path.get_fully_transformed_path()
-        if len(path.vertices) >= 2:
-          line_string = shapely.LineString(path.vertices)
-          my_geom = shapely.buffer(line_string, child_pad + line.get_linewidth(), quad_segs=1, cap_style='square', join_style='mitre') # expand outward
-        elif len(path.vertices) == 1:
-          d = 10 + line.get_linewidth()
-          my_geom = shapely.box(
-            path.vertices[0,0] - d,
-            path.vertices[0,1] - d,
-            path.vertices[0,0] + d,
-            path.vertices[0,1] + d,
-          )
-        else:
-          print("a;sdkjf;laskdj;lsaknvad")
-    case mpl.axes._subplots.SubplotBase():
-      my_geom = None
-    case _:
-      # print("regions(): unknown artist: " + str(artist))
-      my_geom = None
+    # print(artist)
+    match artist:
+        case mpl.text.Text() as text:
+            # based on mpl text.py contains
+            bbox = mpl.text.Text.get_window_extent(text)
+            my_geom = mpl_bbox_to_shapely(bbox)
+        case mpl.patches.Rectangle() as rect:
+            my_geom = mpl_bbox_to_shapely(rect.get_bbox())
+        case mpl.lines.Line2D() as line:
+            # based on mpl lines.py contains
+            if line._xy is None or len(line._xy) == 0:
+                # print("line has no path: " + str(line))
+                my_geom = None
+            else:
+                transformed_path = line._get_transformed_path()
+                path = transformed_path.get_fully_transformed_path()
+                if len(path.vertices) >= 2:
+                    line_string = shapely.LineString(path.vertices)
+                    my_geom = shapely.buffer(line_string, child_pad + line.get_linewidth(), quad_segs=1, cap_style='square', join_style='mitre') # expand outward
+                elif len(path.vertices) == 1:
+                    d = 10 + line.get_linewidth()
+                    my_geom = shapely.box(
+                        path.vertices[0,0] - d,
+                        path.vertices[0,1] - d,
+                        path.vertices[0,0] + d,
+                        path.vertices[0,1] + d,
+                    )
+                else:
+                    print("a;sdkjf;laskdj;lsaknvad")
+        case mpl.axes._subplots.SubplotBase():
+            my_geom = None
+        case _:
+            # print("regions(): unknown artist: " + str(artist))
+            my_geom = None
 
-  if my_geom is None and len(child_geoms) == 0:
-    return None
-  elif my_geom is None:
-    my_geom = total_bbox(child_geoms)
-  else:
-    my_geom = shapely.union_all([my_geom, total_bbox(child_geoms)])
+    if my_geom is None and len(child_geoms) == 0:
+        return None
+    elif my_geom is None:
+        my_geom = total_bbox(child_geoms)
+    else:
+        my_geom = shapely.union_all([my_geom, total_bbox(child_geoms)])
 
-  my_geom = shapely.buffer(my_geom, child_pad, quad_segs = 1, cap_style='square', join_style='mitre') # expand by 10px
+    my_geom = shapely.buffer(my_geom, child_pad, quad_segs = 1, cap_style='square', join_style='mitre') # expand by 10px
 
-  return (artist, my_geom, child_regions)
+    return (artist, my_geom, child_regions)
 
 
     # def contains(self, mouseevent):
@@ -422,8 +422,8 @@ def method_type(receiver, method_name, type_graph):
     return None
 
 def method_type_json(receiver, method_name, type_graph):
-   typ = method_type(receiver, method_name, type_graph)
-   return typ and callable_type_json(typ, {})
+    typ = method_type(receiver, method_name, type_graph)
+    return typ and callable_type_json(typ, {})
 
 # # Preserve heirarchical structure so that JS mouseenter events work as intended
 def region2_to_svg_g(artist_methods_geom_children, object_names, type_graph):
@@ -462,22 +462,21 @@ def region_to_svg_g(artist_geom_children):
     # geom_svg = re.sub(r'\A(<\w+)', f'\\1 data-object="{str(artist)}"', geom_svg)
     child_svgs_str = "\n".join([region_to_svg_g(child) for child in children])
     if hasattr(artist, "_snp_names"):
-      names_str = ",".join(artist._snp_names).replace('"', "'")
-      perhaps_data_names = f'data-names="{names_str}"'
+        names_str = ",".join(artist._snp_names).replace('"', "'")
+        perhaps_data_names = f'data-names="{names_str}"'
     else:
-      perhaps_data_names = ""
+        perhaps_data_names = ""
     if hasattr(artist, "_method_types"):
-      perhaps_data_type = f'data-method-types="{escape_html(json.dumps(artist._method_types))}"'
+        perhaps_data_type = f'data-method-types="{escape_html(json.dumps(artist._method_types))}"'
     #   method_names_str = ",".join(artist._method_types).replace('"', "'")
     #   perhaps_data_type = f'data-type="{method_names_str}"'
     else:
-      perhaps_data_type = ""
+        perhaps_data_type = ""
     perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_loc)}"' if hasattr(artist, "_snp_loc") else ""
     return f"""<g data-artist="{str(artist)}" {perhaps_data_names} {perhaps_data_type} {perhaps_code_loc}>
     {geom_svg}
     {child_svgs_str}
     </g>"""
-
 
 def object_names(locals, user_names=None):
     if user_names is None:
@@ -514,10 +513,10 @@ class SNP():
         # Make a map of user local names to types, things we could use for autocompleting arguments.
         self.user_typed_locals = {}
         for name, value in locals.items():
-          if name in user_names and name not in trivial_names and not callable(value) and name in tree.names:
-            name_type = tree.names[name].type
-            if name_type is not None:
-              self.user_typed_locals[name] = name_type
+            if name in user_names and name not in trivial_names and not callable(value) and name in tree.names:
+                name_type = tree.names[name].type
+                if name_type is not None:
+                    self.user_typed_locals[name] = name_type
 
         print(self.user_typed_locals)
 
@@ -578,16 +577,25 @@ class SNP():
 
     # This is only the technical info for the front end.
     def _repr_json_(self):
-       return {
-          "cell_lineno": self.cell_lineno,
-          "provenance_is_off_by_n_lines": self.provenance_is_off_by_n_lines,
-          "user_call_info": self.user_call_info,
-       }
+        return {
+            "cell_lineno": self.cell_lineno,
+            "provenance_is_off_by_n_lines": self.provenance_is_off_by_n_lines,
+            "user_call_info": self.user_call_info,
+        }
 
     def _repr_html_(self):
         # ripped the below from ipympl/backend_nbagg.py
         base64_image = base64.b64encode(self._repr_png_()).decode('utf-8')
         data_url = f'data:image/png;base64,{base64_image}'
+
+        sidebar_stuff = []
+
+        # for obj_id, name in self.object_names.items():
+
+        #    sidebar_stuff.append({
+        #       "name": name,
+        #       "object_id": obj_id,
+        #    })
 
         return f"""
             <div class="snp_outer" style="position:relative;">
@@ -680,19 +688,19 @@ def tag_with_provenance(obj, lineno, col_offset, end_lineno, end_col_offset):
         obj._snp_loc = loc
         return obj
     except:
-      if isinstance(obj, tuple):
-          return LocedTuple(obj, loc)
-      elif isinstance(obj, str):
-          return LocedStr(obj, loc)
-      elif isinstance(obj, list):
-          return LocedList([tag_with_provenance(child, lineno, col_offset, end_lineno, end_col_offset) for child in obj], loc)
-      elif isinstance(obj, dict):
-          return LocedDict(obj, loc)
-      elif isinstance(obj, int):
-          return LocedInt(obj, loc)
-      elif isinstance(obj, float):
-          return LocedFloat(obj, loc)
-      return obj
+        if isinstance(obj, tuple):
+            return LocedTuple(obj, loc)
+        elif isinstance(obj, str):
+            return LocedStr(obj, loc)
+        elif isinstance(obj, list):
+            return LocedList([tag_with_provenance(child, lineno, col_offset, end_lineno, end_col_offset) for child in obj], loc)
+        elif isinstance(obj, dict):
+            return LocedDict(obj, loc)
+        elif isinstance(obj, int):
+            return LocedInt(obj, loc)
+        elif isinstance(obj, float):
+            return LocedFloat(obj, loc)
+        return obj
 
 class ProvenanceTagger(ast.NodeTransformer):
     def visit_Call(self, node):
@@ -770,8 +778,8 @@ def callable_type_json(callable_type, user_typed_locals):
 
     type_json_dict["arg_type_compatible_local_names"] = []
     for arg_type in callable_type.arg_types:
-      arg_names = [name for name, local_type in user_typed_locals.items() if mypy.subtypes.is_subtype(local_type, arg_type)]
-      type_json_dict["arg_type_compatible_local_names"].append(arg_names)
+        arg_names = [name for name, local_type in user_typed_locals.items() if mypy.subtypes.is_subtype(local_type, arg_type)]
+        type_json_dict["arg_type_compatible_local_names"].append(arg_names)
         # if callable_type.def_extras.get("first_arg") is not None:
         #     # remove "self"
         #     # print("removing self from", callable_type)
@@ -783,9 +791,9 @@ def callable_type_json(callable_type, user_typed_locals):
 
 class MyVisitor(TraverserVisitor):
     def __init__(self, types_dict, user_typed_locals):
-       self.types_dict = types_dict
-       self.user_typed_locals = user_typed_locals
-       self.out = []
+        self.types_dict = types_dict
+        self.user_typed_locals = user_typed_locals
+        self.out = []
 
     def visit_call_expr(self, node: mypy.nodes.CallExpr) -> None:
         super().visit_call_expr(node)
@@ -847,10 +855,10 @@ class MyVisitor(TraverserVisitor):
         #   print(node.node.type)
 
 if "import_lineset" not in globals():
-  import_lineset = set()
-  fine_grained_build_manager = None
-  mypy_result = None # The FineGrainedBuildManager mutates this, apparently.
-  fscache = None
+    import_lineset = set()
+    fine_grained_build_manager = None
+    mypy_result = None # The FineGrainedBuildManager mutates this, apparently.
+    fscache = None
 
 file_path = "current_notebook.py"
 module_name = os.path.splitext(os.path.basename(file_path))[0]
