@@ -106,7 +106,7 @@ define([
     console.log('Jupyter.notebook.kernel:', Jupyter.notebook.kernel);
 
     // Add provenance_is_off_by_n_lines, cell_lineno, cell_code, and notebook_code_through_cell to the Python env before each cell is executed.
-    IPython.notebook.kernel.events.on("execution_request.Kernel", function (ev, {kernel, content}) {
+    IPython.notebook.events.on("execution_request.Kernel", function (ev, {kernel, content}) {
       const cell_code = content.code;
 
       const [cell_lineno, notebook_code_through_cell] = get_notebook_code_through(cell_code)

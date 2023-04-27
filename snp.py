@@ -445,10 +445,10 @@ def region2_to_svg_g(artist_methods_geom_children, object_names, type_graph):
     # else:
     #   perhaps_data_type = ""
     # perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_loc)}"' if hasattr(artist, "_snp_loc") else ""
-    data_methods = json.dumps([{"receiver_id": id(receiver), "receiver_names": list(object_names.get(id(receiver), {})), "method_name": method_name, "method_type": method_type_json(receiver, method_name, type_graph)} for receiver, method_name in methods])
+    data_methods = json.dumps([{"receiver_id": id(receiver), "receiver_names": list(object_names.get(id(receiver), (None, {}))[1]), "method_name": method_name, "method_type": method_type_json(receiver, method_name, type_graph)} for receiver, method_name in methods])
     perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_loc)}"' if hasattr(artist, "_snp_loc") else ""
     perhaps_add_hint = f'data-add-hint="+ {",".join([method_name for _, method_name in methods])}"' if len(methods) > 0 else ""
-    return f"""<g data-artist="{str(artist)}" data-artist-id="{id(artist)}" data-artist-names="{",".join(object_names.get(id(artist), {}))}" data-new-methods="{escape_html(data_methods)}" {perhaps_code_loc} {perhaps_add_hint}>
+    return f"""<g data-artist="{str(artist)}" data-artist-id="{id(artist)}" data-artist-names="{",".join(object_names.get(id(artist), (None, {}))[1])}" data-new-methods="{escape_html(data_methods)}" {perhaps_code_loc} {perhaps_add_hint}>
     {geom_svg}
     {child_svgs_str}
     </g>"""
@@ -484,7 +484,8 @@ def object_names(locals, user_names=None):
     out = {}
     def add(obj, name):
         key = id(obj)
-        out[key] = out.get(key, set()).union({name})
+        _obj, names = out.get(key, (obj, set()))
+        out[key] = (_obj, names.union({name}))
 
     with mpl._api.deprecation.suppress_matplotlib_deprecation_warning():
         for name, value in [(name, value) for name, value in locals.items() if name in user_names and name not in trivial_names and not callable(value)]:
@@ -590,12 +591,50 @@ class SNP():
 
         sidebar_stuff = []
 
-        # for obj_id, name in self.object_names.items():
+        # data_methods = json.dumps([{"receiver_id": id(receiver), "receiver_names": list(object_names.get(id(receiver), (None, {}))[1]), "method_name": method_name, "method_type": method_type_json(receiver, method_name, type_graph)} for receiver, method_name in methods])
 
-        #    sidebar_stuff.append({
-        #       "name": name,
-        #       "object_id": obj_id,
-        #    })
+        for obj_id, (obj, names) in self.object_names.items():
+            methods = []
+            for _, method_name, max_calls in method_associations(obj):
+                methods.append(
+                    {
+                        "name":      method_name,
+                        "type":      method_type_json(obj, method_name, self.type_graph),
+                        "max_calls": max_calls,
+                    }
+                )
+
+            calls = []
+
+            try:
+                method_call_locs = obj._snp_method_call_locs
+            except:
+                method_call_locs = set()
+
+            # n^2!
+            if len(method_call_locs) > 0:
+                for call_info in self.user_call_info:
+                    call_loc_dict = call_info["call"]["loc"]
+                    # Convert from loc in current_notebook.py to loc in the executed cell
+                    call_loc = (
+                        call_loc_dict["line"] - self.cell_lineno + self.provenance_is_off_by_n_lines + 1,
+                        call_loc_dict["column"],
+                        call_loc_dict["end_line"] - self.cell_lineno + self.provenance_is_off_by_n_lines + 1,
+                        call_loc_dict["end_column"]
+                    )
+
+                    if call_loc in method_call_locs:
+                        calls.append(call_info)
+                    # else:
+                    #     print(call_loc, method_call_locs)
+
+            if len(calls) > 0 or len(methods) > 0:
+                sidebar_stuff.append({
+                    "names": list(names),
+                    "id": obj_id,
+                    "methods": methods,
+                    "calls": calls,
+                })
 
         return f"""
             <div class="snp_outer" style="position:relative;">
@@ -604,7 +643,7 @@ class SNP():
             <img style="margin: 0; border: solid 1px black;" src='{data_url}'> <!-- the plot -->
             {self._repr_svg_()} <!-- hover regions -->
             <div class="stdout_stderr"></div>
-            <style onload="attach_snp(this.closest('.snp_outer'), {self.cell_lineno}, {self.provenance_is_off_by_n_lines}, {escape_html(json.dumps(self.user_call_info))})"></style> <!-- Just a way to run this code once the elements exist. -->
+            <style onload="attach_snp(this.closest('.snp_outer'), {self.cell_lineno}, {self.provenance_is_off_by_n_lines}, {escape_html(json.dumps(self.user_call_info))}, {escape_html(json.dumps(sidebar_stuff))})"></style> <!-- Just a way to run this code once the elements exist. -->
             </div>
         """
         # return "<b id='asdf'>bold</b><script>console.log(IPython.notebook.notebook_name); console.log(Jupyter.notebook.get_cells()); document.querySelector('#asdf').innerHTML = '' + Jupyter.notebook.get_cells();</script>"
@@ -678,36 +717,60 @@ class LocedFloat(float):
 # print(code)
 # tree = ast.parse(code)
 
-def tag_with_provenance(obj, lineno, col_offset, end_lineno, end_col_offset):
-    if hasattr(obj, "_snp_loc"):
-        return obj # Don't rewrite oldest loc.
-
+def tag_with_provenance(ret_obj, receiver, lineno, col_offset, end_lineno, end_col_offset):
     loc = (lineno, col_offset, end_lineno, end_col_offset)
 
     try:
-        obj._snp_loc = loc
-        return obj
+        method_call_locs = receiver._snp_method_call_locs
     except:
-        if isinstance(obj, tuple):
-            return LocedTuple(obj, loc)
-        elif isinstance(obj, str):
-            return LocedStr(obj, loc)
-        elif isinstance(obj, list):
-            return LocedList([tag_with_provenance(child, lineno, col_offset, end_lineno, end_col_offset) for child in obj], loc)
-        elif isinstance(obj, dict):
-            return LocedDict(obj, loc)
-        elif isinstance(obj, int):
-            return LocedInt(obj, loc)
-        elif isinstance(obj, float):
-            return LocedFloat(obj, loc)
-        return obj
+        method_call_locs = set()
+
+    method_call_locs.add(loc)
+
+    try:
+        receiver._snp_method_call_locs = method_call_locs
+    except:
+        pass
+
+    if hasattr(ret_obj, "_snp_loc"):
+        return ret_obj # Don't rewrite oldest loc.
+
+    try:
+        ret_obj._snp_loc = loc
+        return ret_obj
+    except:
+        if isinstance(ret_obj, tuple):
+            return LocedTuple(ret_obj, loc)
+        elif isinstance(ret_obj, str):
+            return LocedStr(ret_obj, loc)
+        elif isinstance(ret_obj, list):
+            return LocedList([tag_with_provenance(child, receiver, lineno, col_offset, end_lineno, end_col_offset) for child in ret_obj], loc)
+        elif isinstance(ret_obj, dict):
+            return LocedDict(ret_obj, loc)
+        elif isinstance(ret_obj, int):
+            return LocedInt(ret_obj, loc)
+        elif isinstance(ret_obj, float):
+            return LocedFloat(ret_obj, loc)
+        return ret_obj
 
 class ProvenanceTagger(ast.NodeTransformer):
+    none = ast.parse("None").body[0].value
+
     def visit_Call(self, node):
         loc = (node.lineno, node.col_offset, node.end_lineno, node.end_col_offset)
 #         print(loc)
+
+        # When the form is receiver.attribute(...), log that there is call on this receiver.
+
+        match node:
+            case ast.Call(func = ast.Attribute(value)):
+                receiver = value
+            case _:
+                receiver = ProvenanceTagger.none
+
         wrapped = ast.Call(ast.Name("tag_with_provenance", ast.Load()), [
             node,
+            receiver,
             ast.Constant(node.lineno),
             ast.Constant(node.col_offset),
             ast.Constant(node.end_lineno),
@@ -719,6 +782,7 @@ class ProvenanceTagger(ast.NodeTransformer):
 # print(astor.dump_tree(ast.parse(tree)))
 
 # print(ast.unparse(ProvenanceTagger().visit(ast.parse(code))))
+# print(ast.unparse(ProvenanceTagger().visit(ast.parse(IPython.get_ipython().history_manager.input_hist_raw[-4]))))
 
 IPython.get_ipython().kernel.shell.ast_transformers = [ProvenanceTagger()]
 

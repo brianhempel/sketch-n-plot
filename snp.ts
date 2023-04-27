@@ -1093,7 +1093,7 @@ function redraw_cell(snp_state) {
 // <svg></svg> <!-- hover regions -->
 // <style onload="attach_snp(this.closest('.snp_outer'))"></style> <!-- Just a way to run this code once the elements exist. -->
 // </div>
-function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_call_info) {
+function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_call_info, sidebar_stuff) {
   const cell_el = snp_outer.closest(".code_cell");
   const cell = Jupyter.notebook.get_cells().filter(cell => cell.element[0] === cell_el)[0];
   snp_outer.cell = cell
@@ -1117,7 +1117,8 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
     img: snp_outer.querySelector("img"),
     hover_regions_svg: () => snp_outer.querySelector("svg"),
     stdout_stderr: snp_outer.querySelector(".stdout_stderr"),
-    inspector: document.createElement("div")
+    inspector: document.createElement("div"),
+    sidebar: document.createElement("div")
   }
 
   snp_outer.addEventListener("mouseenter", () => {
@@ -1129,6 +1130,8 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
   });
 
   attach_widgets_to_hover_regions(snp_state, user_call_info)
+
+  build_sidebar(snp_state, sidebar_stuff)
 
   if ("select_lineno_after_execute" in window) {
     snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
@@ -1143,6 +1146,44 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
   // infer_types_and_attach_widgets(snp_state)
 }
 
+function build_sidebar(snp_state, sidebar_stuff) {
+  const { sidebar, cell_lineno, cell, snp_outer } = snp_state
+
+  console.log("sidebar stuff", sidebar_stuff)
+  console.log("sidebar stuff", JSON.stringify(sidebar_stuff))
+
+  sidebar_stuff.forEach(({names, id, methods, calls}) => {
+    const shortest_name = names.sort(compare_qualified_names)[0];
+
+    const loced_widgets = loced_widgets_from_code(calls, cell_lineno, cell.code_mirror, snp_state)
+
+    // START HERE such a slooooog
+    const new_methods = methods.map(({ name, type, max_calls }) => {
+      let new_code_button = make_new_code_button(cell.code_mirror, shortest_name, name, type, snp_state);
+
+      if (max_calls === 1) {
+        return make_el("div", {}, {}, {}, [
+          make_el("label", {}, {}, {}, [
+            make_el("input", { type: "checkbox" }, {}, {}, []),
+            new_code_button
+          ])
+        ])
+      } else {
+        return make_el("div", {}, {}, {}, [new_code_button])
+      }
+    })
+
+    sidebar.append(make_el("details", {}, {}, {}, [
+      make_el("summary", {}, { display: "list-item" }, {}, [shortest_name]),
+      ...loced_widgets.map(({widget}) => widget),
+      ...new_methods
+    ]))
+  })
+
+  snp_outer.append(sidebar)
+}
+
+
 function attach_widgets_to_hover_regions(snp_state, user_call_info) {
   const { inspector, cell_lineno, cell, snp_outer } = snp_state
   // console.log(msg.content.user_expressions.inferred)
@@ -1151,7 +1192,7 @@ function attach_widgets_to_hover_regions(snp_state, user_call_info) {
   // console.log(JSON.stringify(cell_items));
   const loced_widgets = loced_widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state)
 
-  console.log("loced_widgets", loced_widgets);
+  // console.log("loced_widgets", loced_widgets);
 
   snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
     const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc)
@@ -1233,25 +1274,9 @@ function attach_widgets_to_hover_regions(snp_state, user_call_info) {
           let method_type = method.method_type;
           // let arg_defaults = arg_defaults_from_callee_type(method_type);
           // let str = method.method_name + "(" + arg_defaults.map(({ name, kind, code, type }) => kind === "ARG_POS" ? code : name + "=" + code).join(", ") + ")"
-          let line_count = cm.getValue().split("\n").length;
-          let mark = cm.markText({ line: line_count - 2, ch: 0 }, { line: line_count - 2, ch: 0 }, { inclusiveRight: true, inclusiveLeft: true, clearWhenEmpty: false }); // insert at end, for now...
-          let shortest_name = Array.from(method.receiver_names).sort(compare_qualified_names)[0];
-          let arg_defaults = arg_defaults_from_callee_type(method_type);
-          let [required_positional_arg, required_keyword_args] = arg_defaults.filter(arg => arg.kind === "ARG_POS" || arg.kind === "ARG_NAMED").partition(arg => arg.kind === "ARG_POS");
-          let required_positional_arg_codes = required_positional_arg.map(arg => arg.code);
-          let required_keyword_arg_codes = required_keyword_args.map(arg => `${arg.name}=${arg.code}`);
-          let new_code = `${shortest_name}.${method.method_name}(${required_positional_arg_codes.concat(required_keyword_arg_codes).join(",")})\n`;
-          // let widget = make_call_widget(method_type, [], [], `${shortest_name}.${method.method_name}`, cm, mark, snp_state)
-          // inspector_html += `<div>${method.receiver_names[0]}.${str}</div>`
-          let new_code_button = make_el("div", {}, {}, {
-            click: ev => {
-              const { from, to } = mark.find();
-              // console.log(code)
-              cm.replaceRange(new_code, from, to);
-              select_lineno_after_execute = from.line;
-              hard_rerun(snp_state);
-            }
-          }, [new_code]);
+
+          let receiver_name = Array.from(method.receiver_names as string[]).sort(compare_qualified_names)[0];
+          let new_code_button = make_new_code_button(cm, receiver_name, method.method_name, method_type, snp_state);
           new_code_buttons.push(new_code_button);
         }
         // Order by shortest method call first.
@@ -1262,5 +1287,27 @@ function attach_widgets_to_hover_regions(snp_state, user_call_info) {
       ev.stopPropagation();
     });
   });
+}
+
+function make_new_code_button(cm, receiver_name: string, method_name: string, method_type, snp_state) {
+  let line_count = cm.getValue().split("\n").length;
+  let mark = cm.markText({ line: line_count - 2, ch: 0 }, { line: line_count - 2, ch: 0 }, { inclusiveRight: true, inclusiveLeft: true, clearWhenEmpty: false }); // insert at end, for now...
+  let arg_defaults = arg_defaults_from_callee_type(method_type);
+  let [required_positional_arg, required_keyword_args] = arg_defaults.filter(arg => arg.kind === "ARG_POS" || arg.kind === "ARG_NAMED").partition(arg => arg.kind === "ARG_POS");
+  let required_positional_arg_codes = required_positional_arg.map(arg => arg.code);
+  let required_keyword_arg_codes = required_keyword_args.map(arg => `${arg.name}=${arg.code}`);
+  let new_code = `${receiver_name}.${method_name}(${required_positional_arg_codes.concat(required_keyword_arg_codes).join(",")})\n`;
+  // let widget = make_call_widget(method_type, [], [], `${shortest_name}.${method.method_name}`, cm, mark, snp_state)
+  // inspector_html += `<div>${method.receiver_names[0]}.${str}</div>`
+  let new_code_button = make_el("div", {}, {}, {
+    click: ev => {
+      const { from, to } = mark.find();
+      // console.log(code)
+      cm.replaceRange(new_code, from, to);
+      select_lineno_after_execute = from.line;
+      hard_rerun(snp_state);
+    }
+  }, [new_code]);
+  return new_code_button;
 }
 
