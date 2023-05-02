@@ -79,39 +79,73 @@ Array.prototype.takeWhile = function (predicate) {
     }
     return out;
 };
-// Prefers first match in case of ties.
-// String.prototype.indexOfMatchClosestToIndex = function(targetStr, idealI) {
-//   let closestI = -1;
-//   let i = -1;
-//   while (true) {
-//     i = this.indexOf(targetStr, i + 1);
-//     if (i == -1) {
-//       return closestI;
-//     } else if (closestI == -1 || Math.abs(i - idealI) < Math.abs(closestI - idealI)) {
-//       closestI = i;
-//     }
-//   }
-// }
-// function vectorAdd({x, y}, vec2) {
-//   return { x: x + vec2.x, y: y + vec2.y };
-// }
-// global, for debugging only
-// window.last_selected_shape = undefined
-function select(snp_state, shape) {
+function selected_shapes(snp_state) {
+    const selected_shapes = [];
+    if (snp_state.canvas_selection === undefined) {
+        return selected_shapes;
+    }
+    else if ("name" in snp_state.canvas_selection) {
+        const target_name = snp_state.canvas_selection.name;
+        snp_state.hover_regions_svg().querySelectorAll(`[data-artist-names]`).forEach(shape => {
+            if (JSON.parse(shape.dataset.artistNames).includes(target_name)) {
+                selected_shapes.push(shape);
+            }
+        });
+    }
+    else if ("func_code" in snp_state.canvas_selection) {
+        const target = [snp_state.canvas_selection.func_code, snp_state.canvas_selection.call_num];
+        snp_state.hover_regions_svg().querySelectorAll(`[data-func-code-and-num]`).forEach(shape => {
+            if (equal_by_json(target, shape.dataset.funcCodeAndNum)) {
+                selected_shapes.push(shape);
+            }
+        });
+    }
+    return selected_shapes;
+}
+function select(snp_state, key) {
+    snp_state.canvas_selection = key;
     // window.last_selected_shape = shape
     // console.log(window.last_selected_shape)
-    snp_state.selected_shape = shape;
-    shape.dataset.oldStrokeWidth = shape.getAttribute("stroke-width");
-    shape.setAttribute("stroke-width", "3.0");
+    selected_shapes(snp_state).forEach(shape => {
+        const drawable = shape.querySelector("[stroke-width]");
+        if (!drawable) {
+            return;
+        }
+        drawable.dataset.oldStrokeWidth = drawable.getAttribute("stroke-width");
+        drawable.setAttribute("stroke-width", "3.0");
+    });
     place_inspector(snp_state);
     snp_state.snp_outer.querySelectorAll(".add_hint").forEach(hide);
 }
-function deselect_all(snp_state) {
-    const selected = snp_state.selected_shape;
-    if (selected) {
-        selected.setAttribute("stroke-width", selected.dataset.oldStrokeWidth);
-        snp_state.selected_shape = undefined;
+function shape_selection_key(shape) {
+    if (shape.dataset.artistNames && JSON.parse(shape.dataset.artistNames).length > 0) {
+        return { name: shortest_qualified_name(JSON.parse(shape.dataset.artistNames)) };
     }
+    else if (shape.dataset.funcCodeAndNum) {
+        const [func_code, call_num] = JSON.parse(shape.dataset.funcCodeAndNum);
+        return { func_code, call_num };
+    }
+    return undefined;
+}
+// START HERE clicking on ylabel doesn't select
+// function select(snp_state, selected_item) {
+//   // window.last_selected_shape = shape
+//   // console.log(window.last_selected_shape)
+//   snp_state.selected_shape = shape
+//   shape.dataset.oldStrokeWidth = shape.getAttribute("stroke-width")
+//   shape.setAttribute("stroke-width", "3.0")
+//   place_inspector(snp_state)
+//   snp_state.snp_outer.querySelectorAll(".add_hint").forEach(hide)
+// }
+function deselect_all(snp_state) {
+    selected_shapes(snp_state).forEach(shape => {
+        const drawable = shape.querySelector("[stroke-width]");
+        if (!drawable) {
+            return;
+        }
+        drawable.setAttribute("stroke-width", drawable.dataset.oldStrokeWidth);
+    });
+    snp_state.canvas_selection = undefined;
     snp_state.inspector.remove();
     snp_state.snp_outer.querySelectorAll(".add_hint").forEach(show);
 }
@@ -270,7 +304,7 @@ function make_dropdown(sync_editor_and_output, els, options = { selected_el: und
         dropdown.prepend(opened_dropdown);
     }
     let select_button = make_el("span", {}, { cursor: "pointer" }, { click: open_dropdown }, ["▾"]);
-    set_dropdown((options === null || options === void 0 ? void 0 : options.selected_el) || els[0]);
+    set_dropdown(options?.selected_el || els[0]);
     dropdown.to_code = () => to_code(dropdown.selected_el);
     return dropdown;
 }
@@ -386,7 +420,7 @@ function make_dial_and_num(sync_editor_and_output, code, change_per_px) {
     dial.setAttribute("style", "vertical-align: text-bottom; cursor: ns-resize");
     let angle = 3.14159 / 2;
     let r = 3;
-    let nub = Array.from(dial.querySelectorAll("g")).find(elem => { var _a; return ((_a = elem.querySelector("title")) === null || _a === void 0 ? void 0 : _a.textContent) === "nub"; });
+    let nub = Array.from(dial.querySelectorAll("g")).find(elem => elem.querySelector("title")?.textContent === "nub");
     // console.log(nub)
     // console.log(nub.parentElement);
     dial.addEventListener("mousedown", ev => {
@@ -445,16 +479,15 @@ function make_arg_el(sync_editor_and_output, arg, options = { positional: false 
         remove_button.title = `Remove argument \`${arg.name}\``;
         remove_button.to_code = () => "";
         remove_button.addEventListener("click", ev => {
-            var _a, _b;
             const ellipses_el = siblingsAfter(arg_el).find(node => node.hidden_arg_els !== undefined);
             // Try to remove the extra comma.
             // Need to skip any ellipses elements.
             const node_before = siblingsBefore(arg_el).find(node => to_code(node) !== "" && !node.textContent.match(/^\s*$/));
             const node_after = siblingsAfter(arg_el).find(node => to_code(node) !== "" && !node.textContent.match(/^\s*$/));
-            if ((_a = node_before === null || node_before === void 0 ? void 0 : node_before.textContent) === null || _a === void 0 ? void 0 : _a.match(/\s*,\s*$/)) {
+            if (node_before?.textContent?.match(/\s*,\s*$/)) {
                 node_before.textContent = node_before.textContent.replace(/\s*,\s*$/, "");
             }
-            else if ((_b = node_after === null || node_after === void 0 ? void 0 : node_after.textContent) === null || _b === void 0 ? void 0 : _b.match(/^\s*,\s*/)) {
+            else if (node_after?.textContent?.match(/^\s*,\s*/)) {
                 node_after.textContent = node_before.textContent.replace(/^\s*,\s*/, "");
             }
             // console.log(arg_el)
@@ -468,7 +501,7 @@ function make_arg_el(sync_editor_and_output, arg, options = { positional: false 
         });
         arg_el.append(remove_button);
     }
-    if (options === null || options === void 0 ? void 0 : options.positional) {
+    if (options?.positional) {
         arg_el.append(arg_to_widget(sync_editor_and_output, arg.code, arg.type, arg.code_type, arg.type_compatible_local_names));
     }
     else {
@@ -552,13 +585,13 @@ function show(elem) {
 //     if (msg.msg_type == "execute_reply" && msg.content.status == "ok" && msg.content.user_expressions.inferred.status == "ok") {
 //       // console.log(msg.content.user_expressions.inferred)
 //       const items = msg.content.user_expressions.inferred.data["application/json"];
-//       const cell_items = items.filter(call_info => call_info.callee.loc.line >= cell_lineno);
+//       const cell_items = items.filter(call_info => call_info.callee.pos.line >= cell_lineno);
 //       console.log("cell items", cell_items);
 //       // console.log(JSON.stringify(cell_items));
 //       let loced_widgets = loced_widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state);
 //       // console.log("loced_widgets", loced_widgets)
 //       snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
-//         const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
+//         const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.pos);
 //         const [shape_start_pos, shape_end_pos] = [ // CodeMirror locs
 //           {line: lineno-1,     ch: col_offset},
 //           {line: end_lineno-1, ch: end_col_offset}
@@ -605,7 +638,7 @@ function show(elem) {
 //         // console.log(hint)
 //       })
 //       snp_state.hover_regions_svg().querySelectorAll('[data-new-methods]').forEach(hover_region => {
-//         if (hover_region.dataset.loc) {
+//         if (hover_region.dataset.pos) {
 //           return;
 //         }
 //         const methods = JSON.parse(hover_region.dataset.newMethods)
@@ -671,7 +704,7 @@ function show(elem) {
 //   );
 // }
 function place_inspector(snp_state) {
-    const shape = snp_state.selected_shape;
+    const shape = selected_shapes(snp_state).at(-1);
     const [max_width, max_height] = [snp_state.img.getBoundingClientRect().width, snp_state.img.getBoundingClientRect().height];
     const [top, left] = relativeTopLeft(shape, snp_state.snp_outer);
     snp_state.inspector.style = `
@@ -729,7 +762,7 @@ function hard_rerun(snp_state) {
 function make_call_widget(callee, given_positional_args, given_keyword_args, callee_code, code_mirror, mark, snp_state) {
     const widget = document.createElement("div");
     // widget.style.display = "inline-block";
-    widget.style.border = "solid gray 1px";
+    // widget.style.border = "solid gray 1px";
     let arg_defaults = arg_defaults_from_callee_type(callee);
     // const missing_positional_args = []
     const missing_positional_args = arg_defaults.
@@ -796,10 +829,10 @@ function loced_widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
     let loced_widgets = [];
     cell_items.forEach(({ call, callee, given_args }) => {
         function item_to_start_pos(item) {
-            return { line: item.loc.line - cell_lineno, ch: item.loc.column };
+            return { line: item.pos.line - cell_lineno, ch: item.pos.column };
         }
         function item_to_end_pos(item) {
-            return { line: item.loc.end_line - cell_lineno, ch: item.loc.end_column };
+            return { line: item.pos.end_line - cell_lineno, ch: item.pos.end_column };
         }
         const start_pos = item_to_start_pos(call);
         const end_pos = item_to_end_pos(call);
@@ -833,33 +866,33 @@ function loced_widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
             start_pos: start_pos,
             end_pos: end_pos,
             mark: mark,
+            method_name: (callee.name || "").split(" ")[0] || "",
             widget: widget
         });
     });
     return loced_widgets;
 }
 // returns undefined or an array
-function tree_path(root, target) {
-    if (root === target) {
-        return [];
-    }
-    for (let i = 0; i < root.children.length; i++) {
-        let deeper_path = tree_path(root.children[i], target);
-        if (deeper_path !== undefined) {
-            return [i].concat(deeper_path);
-        }
-    }
-    return undefined;
-}
-function el_by_path(root, path) {
-    if (path.length === 0) {
-        return root;
-    }
-    const child = root.children[path[0]];
-    return child && el_by_path(child, path.slice(1));
-}
+// function tree_path(root, target) {
+//   if (root === target) {
+//     return []
+//   }
+//   for (let i = 0; i < root.children.length; i++) {
+//     let deeper_path = tree_path(root.children[i], target);
+//     if (deeper_path !== undefined) {
+//       return [i].concat(deeper_path)
+//     }
+//   }
+//   return undefined;
+// }
+// function el_by_path(root, path) {
+//   if (path.length === 0) {
+//     return root
+//   }
+//   const child = root.children[path[0]]
+//   return child && el_by_path(child, path.slice(1))
+// }
 function replace_hover_regions(snp_state, new_svg_str) {
-    const old_path = snp_state.selected_shape && tree_path(snp_state.hover_regions_svg(), snp_state.selected_shape);
     let temp_el = document.createElement("div");
     temp_el.innerHTML = new_svg_str;
     snp_state.hover_regions_svg().remove();
@@ -868,11 +901,7 @@ function replace_hover_regions(snp_state, new_svg_str) {
     //
     // Selection preservation is non-trivial when the number of items changes.
     // In Sketch-n-Sketch, we simply used the linear shape number in the output.
-    // Let's use the tree path, for now, which should be slightly more robust.
-    if (old_path) {
-        const new_selected_shape = el_by_path(snp_state.hover_regions_svg(), old_path);
-        new_selected_shape && select(snp_state, new_selected_shape);
-    }
+    snp_state.canvas_selection && select(snp_state, snp_state.canvas_selection);
     snp_state.snp_outer.querySelectorAll(".remove_on_new_hover_regions").forEach(el => el.remove());
 }
 function redraw_cell(snp_state) {
@@ -946,7 +975,7 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
     const hovered_elems = [];
     const snp_state = {
         hovered_elems: [],
-        selected_shape: undefined,
+        canvas_selection: undefined,
         cell: cell,
         busy: false,
         last_cell_code_executed: cell.get_text(),
@@ -968,8 +997,8 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
     attach_widgets_to_hover_regions(snp_state, user_call_info);
     build_sidebar(snp_state, sidebar_stuff);
     if ("select_lineno_after_execute" in window) {
-        snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
-            const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
+        snp_state.hover_regions_svg().querySelectorAll('[data-pos][data-func-code-and-num]').forEach(hover_region => {
+            const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.pos);
             if (lineno - 1 - snp_state.provenance_is_off_by_n_lines === select_lineno_after_execute) {
                 hover_region.dispatchEvent(new MouseEvent("click"));
             }
@@ -978,31 +1007,60 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
     }
     // infer_types_and_attach_widgets(snp_state)
 }
+function shortest_qualified_name(names) {
+    return names.sort(compare_qualified_names)[0];
+}
 function build_sidebar(snp_state, sidebar_stuff) {
     const { sidebar, cell_lineno, cell, snp_outer } = snp_state;
     console.log("sidebar stuff", sidebar_stuff);
     console.log("sidebar stuff", JSON.stringify(sidebar_stuff));
     sidebar_stuff.forEach(({ names, id, methods, calls }) => {
-        const shortest_name = names.sort(compare_qualified_names)[0];
-        const loced_widgets = loced_widgets_from_code(calls, cell_lineno, cell.code_mirror, snp_state);
-        // START HERE such a slooooog
-        const new_methods = methods.map(({ name, type, max_calls }) => {
-            let new_code_button = make_new_code_button(cell.code_mirror, shortest_name, name, type, snp_state);
-            if (max_calls === 1) {
-                return make_el("div", {}, {}, {}, [
-                    make_el("label", {}, {}, {}, [
-                        make_el("input", { type: "checkbox" }, {}, {}, []),
-                        new_code_button
-                    ])
+        const shortest_name = shortest_qualified_name(names);
+        const method_names_called = [];
+        const call_widgets = loced_widgets_from_code(calls, cell_lineno, cell.code_mirror, snp_state).map(({ method_name, widget }) => {
+            method_names_called.push(method_name);
+            const is_single_call = methods.some(({ name, max_calls }) => name === method_name && max_calls === 1);
+            widget.style.display = "inline-block";
+            if (is_single_call) {
+                return make_el("label", {}, { display: "block" }, {}, [
+                    make_el("input", { type: "checkbox", checked: "true" }, {}, {}, []),
+                    " ",
+                    widget
                 ]);
             }
             else {
-                return make_el("div", {}, {}, {}, [new_code_button]);
+                return make_el("div", {}, {}, {}, [
+                    make_el("span", {}, {}, {}, ["❌"]),
+                    " ",
+                    widget
+                ]);
             }
+        });
+        const new_methods = [];
+        methods.forEach(({ name, type, max_calls }) => {
+            let new_code_button = make_new_code_button(cell.code_mirror, shortest_name, name, type, snp_state);
+            new_code_button.style.display = "inline-block";
+            let kids = [];
+            if (max_calls === 1) {
+                if (method_names_called.includes(name)) {
+                    return;
+                }
+                kids = [
+                    make_el("label", {}, {}, {}, [
+                        make_el("input", { type: "checkbox" }, {}, {}, []),
+                        " ",
+                        new_code_button
+                    ])
+                ];
+            }
+            else {
+                kids = ["➕ ", new_code_button];
+            }
+            new_methods.push(make_el("div", {}, {}, {}, kids));
         });
         sidebar.append(make_el("details", {}, {}, {}, [
             make_el("summary", {}, { display: "list-item" }, {}, [shortest_name]),
-            ...loced_widgets.map(({ widget }) => widget),
+            ...call_widgets,
             ...new_methods
         ]));
     });
@@ -1011,28 +1069,28 @@ function build_sidebar(snp_state, sidebar_stuff) {
 function attach_widgets_to_hover_regions(snp_state, user_call_info) {
     const { inspector, cell_lineno, cell, snp_outer } = snp_state;
     // console.log(msg.content.user_expressions.inferred)
-    const cell_items = user_call_info.filter(call_info => call_info.callee.loc.line >= cell_lineno);
+    const cell_items = user_call_info.filter(call_info => call_info.callee.pos.line >= cell_lineno);
     console.log("cell items", cell_items);
     // console.log(JSON.stringify(cell_items));
     const loced_widgets = loced_widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state);
     // console.log("loced_widgets", loced_widgets);
-    snp_state.hover_regions_svg().querySelectorAll('[data-loc]').forEach(hover_region => {
-        const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.loc);
+    snp_state.hover_regions_svg().querySelectorAll('[data-pos]').forEach(hover_region => {
+        const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.pos);
         const [shape_start_pos, shape_end_pos] = [
             { line: lineno - 1 - snp_state.provenance_is_off_by_n_lines, ch: col_offset },
             { line: end_lineno - 1 - snp_state.provenance_is_off_by_n_lines, ch: end_col_offset }
         ];
         // console.log("shape_loc", [shape_start_pos, shape_end_pos])
         const { widget, mark } = loced_widgets.find(({ start_pos, end_pos }) => equal_by_json([start_pos, end_pos], [shape_start_pos, shape_end_pos])) || { widget: undefined, mark: undefined };
+        // START HERE: selection/deselection not working
         if (widget) {
             hover_region.addEventListener("click", ev => {
-                const first_shape = hover_region.querySelector("[stroke-width]");
-                if (snp_state.selected_shape == first_shape) {
+                if (selected_shapes(snp_state).includes(hover_region)) {
                     deselect_all(snp_state);
                 }
                 else {
                     deselect_all(snp_state);
-                    select(snp_state, first_shape);
+                    select(snp_state, shape_selection_key(hover_region));
                     inspector.innerHTML = "";
                     snp_outer.appendChild(inspector);
                     inspector.appendChild(widget);
@@ -1043,68 +1101,67 @@ function attach_widgets_to_hover_regions(snp_state, user_call_info) {
             });
         }
     });
-    snp_state.hover_regions_svg().querySelectorAll('[data-add-hint]:not([data-loc])').forEach(hover_region => {
-        let hint = document.createElement("div");
-        hint.style.display = "inline-block";
-        hint.style.borderRadius = "3px";
-        hint.style.fontSize = "10px";
-        hint.style.background = "#f4f4f4";
-        hint.style.border = "solid 1px #ddd";
-        hint.style.lineHeight = "normal";
-        hint.style.padding = "1px";
-        hint.style.cursor = "pointer";
-        hint.innerHTML = hover_region.dataset.addHint;
-        hint.classList.add("add_hint");
-        hint.classList.add("remove_on_new_hover_regions");
-        snp_outer.appendChild(hint);
-        place_over_shape(snp_state, hover_region, hint);
-        hint.addEventListener("click", ev => {
-            // https://www.growingwiththeweb.com/2016/07/redirecting-dom-events.html
-            hover_region.dispatchEvent(new MouseEvent("click", ev));
-            ev.preventDefault();
-            ev.stopImmediatePropagation();
-        });
-        hide(hint);
-        // console.log(hint)
-    });
-    snp_state.hover_regions_svg().querySelectorAll('[data-new-methods]').forEach(hover_region => {
-        if (hover_region.dataset.loc) {
-            return;
-        }
-        const methods = JSON.parse(hover_region.dataset.newMethods);
-        if (methods.length === 0) {
-            return;
-        }
-        hover_region.addEventListener("click", ev => {
-            const first_shape = hover_region.querySelector("[stroke-width]");
-            if (snp_state.selected_shape == first_shape) {
-                deselect_all(snp_state);
-            }
-            else {
-                deselect_all(snp_state);
-                select(snp_state, first_shape);
-                inspector.innerHTML = "";
-                snp_outer.appendChild(inspector);
-                // const method_types = JSON.parse(hover_region.dataset.methodTypes);
-                // let inspector_html = `<div>${hover_region.dataset.artistNames}</div>`
-                let cm = cell.code_mirror;
-                let new_code_buttons = [];
-                for (const method of methods) {
-                    let method_type = method.method_type;
-                    // let arg_defaults = arg_defaults_from_callee_type(method_type);
-                    // let str = method.method_name + "(" + arg_defaults.map(({ name, kind, code, type }) => kind === "ARG_POS" ? code : name + "=" + code).join(", ") + ")"
-                    let receiver_name = Array.from(method.receiver_names).sort(compare_qualified_names)[0];
-                    let new_code_button = make_new_code_button(cm, receiver_name, method.method_name, method_type, snp_state);
-                    new_code_buttons.push(new_code_button);
-                }
-                // Order by shortest method call first.
-                inspector.append(...new_code_buttons.sort((code1, code2) => compare_qualified_names(code1.innerText.match(/^[^\(]*/)[0], code2.innerText.match(/^[^\(]*/)[0])));
-                // inspector.innerHTML = inspector_html
-            }
-            // console.log(hovered_elems)
-            ev.stopPropagation();
-        });
-    });
+    // snp_state.hover_regions_svg().querySelectorAll('[data-add-hint]:not([data-loc])').forEach(hover_region => {
+    //   let hint = document.createElement("div");
+    //   hint.style.display = "inline-block";
+    //   hint.style.borderRadius = "3px";
+    //   hint.style.fontSize = "10px";
+    //   hint.style.background = "#f4f4f4";
+    //   hint.style.border = "solid 1px #ddd";
+    //   hint.style.lineHeight = "normal";
+    //   hint.style.padding = "1px";
+    //   hint.style.cursor = "pointer";
+    //   hint.innerHTML = hover_region.dataset.addHint;
+    //   hint.classList.add("add_hint");
+    //   hint.classList.add("remove_on_new_hover_regions");
+    //   snp_outer.appendChild(hint);
+    //   place_over_shape(snp_state, hover_region, hint);
+    //   hint.addEventListener("click", ev => {
+    //     // https://www.growingwiththeweb.com/2016/07/redirecting-dom-events.html
+    //     hover_region.dispatchEvent(new MouseEvent("click", ev));
+    //     ev.preventDefault();
+    //     ev.stopImmediatePropagation();
+    //   });
+    //   hide(hint);
+    //   // console.log(hint)
+    // });
+    // snp_state.hover_regions_svg().querySelectorAll('[data-new-methods]').forEach(hover_region => {
+    //   if (hover_region.dataset.pos) {
+    //     return;
+    //   }
+    //   const methods = JSON.parse(hover_region.dataset.newMethods);
+    //   if (methods.length === 0) {
+    //     return;
+    //   }
+    //   hover_region.addEventListener("click", ev => {
+    //     const first_shape = hover_region.querySelector("[stroke-width]");
+    //     if (snp_state.selected_shape == first_shape) {
+    //       deselect_all(snp_state);
+    //     } else {
+    //       deselect_all(snp_state);
+    //       select(snp_state, first_shape);
+    //       inspector.innerHTML = "";
+    //       snp_outer.appendChild(inspector);
+    //       // const method_types = JSON.parse(hover_region.dataset.methodTypes);
+    //       // let inspector_html = `<div>${hover_region.dataset.artistNames}</div>`
+    //       let cm = cell.code_mirror;
+    //       let new_code_buttons = [];
+    //       for (const method of methods) {
+    //         let method_type = method.method_type;
+    //         // let arg_defaults = arg_defaults_from_callee_type(method_type);
+    //         // let str = method.method_name + "(" + arg_defaults.map(({ name, kind, code, type }) => kind === "ARG_POS" ? code : name + "=" + code).join(", ") + ")"
+    //         let receiver_name = Array.from(method.receiver_names as string[]).sort(compare_qualified_names)[0];
+    //         let new_code_button = make_new_code_button(cm, receiver_name, method.method_name, method_type, snp_state);
+    //         new_code_buttons.push(new_code_button);
+    //       }
+    //       // Order by shortest method call first.
+    //       inspector.append(...new_code_buttons.sort((code1, code2) => compare_qualified_names(code1.innerText.match(/^[^\(]*/)[0], code2.innerText.match(/^[^\(]*/)[0])));
+    //       // inspector.innerHTML = inspector_html
+    //     }
+    //     // console.log(hovered_elems)
+    //     ev.stopPropagation();
+    //   });
+    // });
 }
 function make_new_code_button(cm, receiver_name, method_name, method_type, snp_state) {
     let line_count = cm.getValue().split("\n").length;

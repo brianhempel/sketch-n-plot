@@ -18,6 +18,9 @@ html_subs = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039
 def escape_html(string):
   return html_chars_re.sub(lambda match: html_subs[match.group(0)], string)
 
+def json_for_attr(x):
+    return escape_html(json.dumps(x))
+
 def full_names_dict(type_node):
     names = dict()
     for superclass in type_node.direct_base_classes():
@@ -54,52 +57,52 @@ def object_type_node(obj, type_graph):
     return thing_type_node
 
 
-def tag_with_paths_deep(artist, path_str, type_graph):
-    if not hasattr(artist, "_method_types"):
-        artist_type_node = object_type_node(artist, type_graph)
+# def tag_with_paths_deep(artist, path_str, type_graph):
+#     if not hasattr(artist, "_method_types"):
+#         artist_type_node = object_type_node(artist, type_graph)
 
-        if artist_type_node is not None:
+#         if artist_type_node is not None:
 
-        #   callable_type_json(callee_type)
-        #   names = list(full_names_dict(artist_type_node).keys())
-        #   try:
-            artist._method_types = {name: callable_type_json(thing.type) for name, thing in full_names_dict(artist_type_node).items() if isinstance(thing.type, mypy.types.CallableType) and name not in trivial_names}
-            # print(entry)
-        #   except:
-            # print(path_str)
-            # pass # can't set new attrs on primitives
+#         #   callable_type_json(callee_type)
+#         #   names = list(full_names_dict(artist_type_node).keys())
+#         #   try:
+#             artist._method_types = {name: callable_type_json(thing.type) for name, thing in full_names_dict(artist_type_node).items() if isinstance(thing.type, mypy.types.CallableType) and name not in trivial_names}
+#             # print(entry)
+#         #   except:
+#             # print(path_str)
+#             # pass # can't set new attrs on primitives
 
-        # print(thing.names)
+#         # print(thing.names)
 
-    if hasattr(artist, "_snp_names"):
-        if path_str not in artist._snp_names:
-            artist._snp_names.add(path_str)
-        # print(entry)
-    else:
-        try:
-            artist._snp_names = {path_str}
-            # print(entry)
-        except:
-            print(path_str)
-            pass # can't set new attrs on primitives
+#     if hasattr(artist, "_snp_names"):
+#         if path_str not in artist._snp_names:
+#             artist._snp_names.add(path_str)
+#         # print(entry)
+#     else:
+#         try:
+#             artist._snp_names = {path_str}
+#             # print(entry)
+#         except:
+#             print(path_str)
+#             pass # can't set new attrs on primitives
 
-  # out += textbox("_suptitle", artist._suptitle)
-    children = artist.get_children()
+#   # out += textbox("_suptitle", artist._suptitle)
+#     children = artist.get_children()
 
-    with mpl._api.deprecation.suppress_matplotlib_deprecation_warning():
-        for name in dir(artist):
-          # print(path_str, name)
-          # if not name.startswith("_"):
-            if name not in trivial_names:
-                value = getattr(artist, name)
-                if not callable(value):
-                    if isinstance(value, list):
-                        for i, item in enumerate(value):
-                            if item in children:
-                                tag_with_paths_deep(item, path_str + "." + name + "[" + str(i) + "]", type_graph)
-                    else:
-                        if value in children:
-                            tag_with_paths_deep(value, path_str + "." + name, type_graph)
+#     with mpl._api.deprecation.suppress_matplotlib_deprecation_warning():
+#         for name in dir(artist):
+#           # print(path_str, name)
+#           # if not name.startswith("_"):
+#             if name not in trivial_names:
+#                 value = getattr(artist, name)
+#                 if not callable(value):
+#                     if isinstance(value, list):
+#                         for i, item in enumerate(value):
+#                             if item in children:
+#                                 tag_with_paths_deep(item, path_str + "." + name + "[" + str(i) + "]", type_graph)
+#                     else:
+#                         if value in children:
+#                             tag_with_paths_deep(value, path_str + "." + name, type_graph)
 
 def flatten(lists):
     return sum(lists, []) # https://stackoverflow.com/a/952946
@@ -128,9 +131,9 @@ def total_bbox(geometries):
     return shapely.box(*total_bounds(geometries))
 
 # returns list of (artist, shapley.Geometry)
-def flatten_regions(artist_geom_children):
-    artist, geom, children = artist_geom_children
-    return [(artist, geom)] + flatten([flatten_regions(child) for child in children])
+# def flatten_regions(artist_geom_children):
+#     artist, geom, children = artist_geom_children
+#     return [(artist, geom)] + flatten([flatten_regions(child) for child in children])
 
 # returns list of (obj_id, shapley.Geometry)
 def flatten_regions2(objid_methods_geom_children):
@@ -143,14 +146,16 @@ def method_associations(artist):
         case mpl.axes.Axes():
             return [
                (".title",       "set_title",  1),
+               (".xaxis",       "set_xlabel", 1),
                (".xaxis.label", "set_xlabel", 1),
+               (".yaxis",       "set_ylabel", 1),
                (".yaxis.label", "set_ylabel", 1),
                ("",             "bar",        float("inf")),
                ("",             "barh",       float("inf")),
                ("",             "plot",       float("inf")),
             ]
-        case mpl.axis.Axis():
-            return [(".label", "set_label_text", 1)]
+        # case mpl.axis.Axis():
+        #     return [(".label", "set_label_text", 1)]
         case _:
             return []
 
@@ -272,98 +277,68 @@ def regions2(artist):
 
 # Make sure to render before calling this.
 # returns (artist, shapley.Geometry, children)
-def regions(artist):
-    child_pad = 3
+# def regions(artist):
+#     child_pad = 3
 
-    if "get_children" in dir(artist):
-        children = artist.get_children()
-    else:
-        children = []
+#     if "get_children" in dir(artist):
+#         children = artist.get_children()
+#     else:
+#         children = []
 
-    match artist:
-        case mpl.axis.Tick():
-            # Remove invisible tick text (i.e. the rarely used label2, which is mispositioned when not actively used.)
-            children = [child for child in children if child.get_visible()]
+#     match artist:
+#         case mpl.axis.Tick():
+#             # Remove invisible tick text (i.e. the rarely used label2, which is mispositioned when not actively used.)
+#             children = [child for child in children if child.get_visible()]
 
-    child_regions      = remove_nones([regions(child) for child in children])
-    child_regions_flat = flatten([flatten_regions(child_region) for child_region in child_regions])
-    child_geoms        = [geom for _, geom in child_regions_flat]
+#     child_regions      = remove_nones([regions(child) for child in children])
+#     child_regions_flat = flatten([flatten_regions(child_region) for child_region in child_regions])
+#     child_geoms        = [geom for _, geom in child_regions_flat]
 
-    # print(artist)
-    match artist:
-        case mpl.text.Text() as text:
-            # based on mpl text.py contains
-            bbox = mpl.text.Text.get_window_extent(text)
-            my_geom = mpl_bbox_to_shapely(bbox)
-        case mpl.patches.Rectangle() as rect:
-            my_geom = mpl_bbox_to_shapely(rect.get_bbox())
-        case mpl.lines.Line2D() as line:
-            # based on mpl lines.py contains
-            if line._xy is None or len(line._xy) == 0:
-                # print("line has no path: " + str(line))
-                my_geom = None
-            else:
-                transformed_path = line._get_transformed_path()
-                path = transformed_path.get_fully_transformed_path()
-                if len(path.vertices) >= 2:
-                    line_string = shapely.LineString(path.vertices)
-                    my_geom = shapely.buffer(line_string, child_pad + line.get_linewidth(), quad_segs=1, cap_style='square', join_style='mitre') # expand outward
-                elif len(path.vertices) == 1:
-                    d = 10 + line.get_linewidth()
-                    my_geom = shapely.box(
-                        path.vertices[0,0] - d,
-                        path.vertices[0,1] - d,
-                        path.vertices[0,0] + d,
-                        path.vertices[0,1] + d,
-                    )
-                else:
-                    print("a;sdkjf;laskdj;lsaknvad")
-        case mpl.axes._subplots.SubplotBase():
-            my_geom = None
-        case _:
-            # print("regions(): unknown artist: " + str(artist))
-            my_geom = None
+#     # print(artist)
+#     match artist:
+#         case mpl.text.Text() as text:
+#             # based on mpl text.py contains
+#             bbox = mpl.text.Text.get_window_extent(text)
+#             my_geom = mpl_bbox_to_shapely(bbox)
+#         case mpl.patches.Rectangle() as rect:
+#             my_geom = mpl_bbox_to_shapely(rect.get_bbox())
+#         case mpl.lines.Line2D() as line:
+#             # based on mpl lines.py contains
+#             if line._xy is None or len(line._xy) == 0:
+#                 # print("line has no path: " + str(line))
+#                 my_geom = None
+#             else:
+#                 transformed_path = line._get_transformed_path()
+#                 path = transformed_path.get_fully_transformed_path()
+#                 if len(path.vertices) >= 2:
+#                     line_string = shapely.LineString(path.vertices)
+#                     my_geom = shapely.buffer(line_string, child_pad + line.get_linewidth(), quad_segs=1, cap_style='square', join_style='mitre') # expand outward
+#                 elif len(path.vertices) == 1:
+#                     d = 10 + line.get_linewidth()
+#                     my_geom = shapely.box(
+#                         path.vertices[0,0] - d,
+#                         path.vertices[0,1] - d,
+#                         path.vertices[0,0] + d,
+#                         path.vertices[0,1] + d,
+#                     )
+#                 else:
+#                     print("a;sdkjf;laskdj;lsaknvad")
+#         case mpl.axes._subplots.SubplotBase():
+#             my_geom = None
+#         case _:
+#             # print("regions(): unknown artist: " + str(artist))
+#             my_geom = None
 
-    if my_geom is None and len(child_geoms) == 0:
-        return None
-    elif my_geom is None:
-        my_geom = total_bbox(child_geoms)
-    else:
-        my_geom = shapely.union_all([my_geom, total_bbox(child_geoms)])
+#     if my_geom is None and len(child_geoms) == 0:
+#         return None
+#     elif my_geom is None:
+#         my_geom = total_bbox(child_geoms)
+#     else:
+#         my_geom = shapely.union_all([my_geom, total_bbox(child_geoms)])
 
-    my_geom = shapely.buffer(my_geom, child_pad, quad_segs = 1, cap_style='square', join_style='mitre') # expand by 10px
+#     my_geom = shapely.buffer(my_geom, child_pad, quad_segs = 1, cap_style='square', join_style='mitre') # expand by 10px
 
-    return (artist, my_geom, child_regions)
-
-
-    # def contains(self, mouseevent):
-    #     """
-    #     Return whether the mouse event occurred inside the axis-aligned
-    #     bounding-box of the text.
-    #     """
-    #     inside, info = self._default_contains(mouseevent)
-    #     if inside is not None:
-    #         return inside, info
-
-    #     if not self.get_visible() or self._renderer is None:
-    #         return False, {}
-
-    #     # Explicitly use Text.get_window_extent(self) and not
-    #     # self.get_window_extent() so that Annotation.contains does not
-    #     # accidentally cover the entire annotation bounding box.
-    #     bbox = Text.get_window_extent(self)
-    #     inside = (bbox.x0 <= mouseevent.x <= bbox.x1
-    #               and bbox.y0 <= mouseevent.y <= bbox.y1)
-
-    #     cattr = {}
-    #     # if the text has a surrounding patch, also check containment for it,
-    #     # and merge the results with the results for the text.
-    #     if self._bbox_patch:
-    #         patch_inside, patch_cattr = self._bbox_patch.contains(mouseevent)
-    #         inside = inside or patch_inside
-    #         cattr["bbox_patch"] = patch_cattr
-
-    #     return inside, cattr
+#     return (artist, my_geom, child_regions)
 
 # text = ax.text(0.5, 0.5, "hi")
 
@@ -444,39 +419,43 @@ def region2_to_svg_g(artist_methods_geom_children, object_names, type_graph):
     # #   perhaps_data_type = f'data-type="{method_names_str}"'
     # else:
     #   perhaps_data_type = ""
-    # perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_loc)}"' if hasattr(artist, "_snp_loc") else ""
-    data_methods = json.dumps([{"receiver_id": id(receiver), "receiver_names": list(object_names.get(id(receiver), (None, {}))[1]), "method_name": method_name, "method_type": method_type_json(receiver, method_name, type_graph)} for receiver, method_name in methods])
-    perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_loc)}"' if hasattr(artist, "_snp_loc") else ""
-    perhaps_add_hint = f'data-add-hint="+ {",".join([method_name for _, method_name in methods])}"' if len(methods) > 0 else ""
-    return f"""<g data-artist="{str(artist)}" data-artist-id="{id(artist)}" data-artist-names="{",".join(object_names.get(id(artist), (None, {}))[1])}" data-new-methods="{escape_html(data_methods)}" {perhaps_code_loc} {perhaps_add_hint}>
+    # perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_came_from_call)}"' if hasattr(artist, "_snp_came_from_call") else ""
+    perhaps_call_loc = f'data-func-code-and-num="{json_for_attr(artist._snp_came_from_call[0])}" data-pos="{json_for_attr(artist._snp_came_from_call[1])}"' if hasattr(artist, "_snp_came_from_call") else ""
+    return f"""<g data-artist="{str(artist)}" data-artist-id="{id(artist)}" data-artist-names="{json_for_attr(list(object_names.get(id(artist), (None, {}))[1]))}" {perhaps_call_loc}>
     {geom_svg}
     {child_svgs_str}
     </g>"""
+    # data_methods = json.dumps([{"receiver_id": id(receiver), "receiver_names": list(object_names.get(id(receiver), (None, {}))[1]), "method_name": method_name, "method_type": method_type_json(receiver, method_name, type_graph)} for receiver, method_name in methods])
+    # perhaps_add_hint = f'data-add-hint="+ {",".join([method_name for _, method_name in methods])}"' if len(methods) > 0 else ""
+    # return f"""<g data-artist="{str(artist)}" data-artist-id="{id(artist)}" data-artist-names="{",".join(object_names.get(id(artist), (None, {}))[1])}" data-new-methods="{escape_html(data_methods)}" {perhaps_code_loc} {perhaps_add_hint}>
+    # {geom_svg}
+    # {child_svgs_str}
+    # </g>"""
 
 # # Preserve heirarchical structure so that JS mouseenter events work as intended
-def region_to_svg_g(artist_geom_children):
-    artist, geom, children = artist_geom_children
-    geom_svg = geom.svg()
-    geom_svg = re.sub(r'fill="[^"]*"', 'fill="transparent"', geom_svg) # can't be "none", otherwise no mouse events are triggered inside the region
-    geom_svg = re.sub(r'stroke-width="[^"]*"', 'stroke-width="0.25"', geom_svg)
-    # geom_svg = re.sub(r'\A(<\w+)', f'\\1 data-object="{str(artist)}"', geom_svg)
-    child_svgs_str = "\n".join([region_to_svg_g(child) for child in children])
-    if hasattr(artist, "_snp_names"):
-        names_str = ",".join(artist._snp_names).replace('"', "'")
-        perhaps_data_names = f'data-names="{names_str}"'
-    else:
-        perhaps_data_names = ""
-    if hasattr(artist, "_method_types"):
-        perhaps_data_type = f'data-method-types="{escape_html(json.dumps(artist._method_types))}"'
-    #   method_names_str = ",".join(artist._method_types).replace('"', "'")
-    #   perhaps_data_type = f'data-type="{method_names_str}"'
-    else:
-        perhaps_data_type = ""
-    perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_loc)}"' if hasattr(artist, "_snp_loc") else ""
-    return f"""<g data-artist="{str(artist)}" {perhaps_data_names} {perhaps_data_type} {perhaps_code_loc}>
-    {geom_svg}
-    {child_svgs_str}
-    </g>"""
+# def region_to_svg_g(artist_geom_children):
+#     artist, geom, children = artist_geom_children
+#     geom_svg = geom.svg()
+#     geom_svg = re.sub(r'fill="[^"]*"', 'fill="transparent"', geom_svg) # can't be "none", otherwise no mouse events are triggered inside the region
+#     geom_svg = re.sub(r'stroke-width="[^"]*"', 'stroke-width="0.25"', geom_svg)
+#     # geom_svg = re.sub(r'\A(<\w+)', f'\\1 data-object="{str(artist)}"', geom_svg)
+#     child_svgs_str = "\n".join([region_to_svg_g(child) for child in children])
+#     if hasattr(artist, "_snp_names"):
+#         names_str = ",".join(artist._snp_names).replace('"', "'")
+#         perhaps_data_names = f'data-names="{names_str}"'
+#     else:
+#         perhaps_data_names = ""
+#     if hasattr(artist, "_method_types"):
+#         perhaps_data_type = f'data-method-types="{escape_html(json.dumps(artist._method_types))}"'
+#     #   method_names_str = ",".join(artist._method_types).replace('"', "'")
+#     #   perhaps_data_type = f'data-type="{method_names_str}"'
+#     else:
+#         perhaps_data_type = ""
+#     perhaps_code_loc = f'data-loc="{json.dumps(artist._snp_came_from_call)}"' if hasattr(artist, "_snp_came_from_call") else ""
+#     return f"""<g data-artist="{str(artist)}" {perhaps_data_names} {perhaps_data_type} {perhaps_code_loc}>
+#     {geom_svg}
+#     {child_svgs_str}
+#     </g>"""
 
 def object_names(locals, user_names=None):
     if user_names is None:
@@ -593,6 +572,7 @@ class SNP():
 
         # data_methods = json.dumps([{"receiver_id": id(receiver), "receiver_names": list(object_names.get(id(receiver), (None, {}))[1]), "method_name": method_name, "method_type": method_type_json(receiver, method_name, type_graph)} for receiver, method_name in methods])
 
+        # Find method calls on each of the named objects.
         for obj_id, (obj, names) in self.object_names.items():
             methods = []
             for _, method_name, max_calls in method_associations(obj):
@@ -607,26 +587,26 @@ class SNP():
             calls = []
 
             try:
-                method_call_locs = obj._snp_method_call_locs
+                method_call_positions = [position for _, position in obj._snp_method_call_locs]
             except:
-                method_call_locs = set()
+                method_call_positions = []
 
             # n^2!
-            if len(method_call_locs) > 0:
+            if len(method_call_positions) > 0:
                 for call_info in self.user_call_info:
-                    call_loc_dict = call_info["call"]["loc"]
+                    call_pos_dict = call_info["call"]["pos"]
                     # Convert from loc in current_notebook.py to loc in the executed cell
-                    call_loc = (
-                        call_loc_dict["line"] - self.cell_lineno + self.provenance_is_off_by_n_lines + 1,
-                        call_loc_dict["column"],
-                        call_loc_dict["end_line"] - self.cell_lineno + self.provenance_is_off_by_n_lines + 1,
-                        call_loc_dict["end_column"]
+                    call_pos = (
+                        call_pos_dict["line"] - self.cell_lineno + self.provenance_is_off_by_n_lines + 1,
+                        call_pos_dict["column"],
+                        call_pos_dict["end_line"] - self.cell_lineno + self.provenance_is_off_by_n_lines + 1,
+                        call_pos_dict["end_column"]
                     )
 
-                    if call_loc in method_call_locs:
+                    if call_pos in method_call_positions:
                         calls.append(call_info)
                     # else:
-                    #     print(call_loc, method_call_locs)
+                    #     print(call_loc, method_call_positions)
 
             if len(calls) > 0 or len(methods) > 0:
                 sidebar_stuff.append({
@@ -643,7 +623,7 @@ class SNP():
             <img style="margin: 0; border: solid 1px black;" src='{data_url}'> <!-- the plot -->
             {self._repr_svg_()} <!-- hover regions -->
             <div class="stdout_stderr"></div>
-            <style onload="attach_snp(this.closest('.snp_outer'), {self.cell_lineno}, {self.provenance_is_off_by_n_lines}, {escape_html(json.dumps(self.user_call_info))}, {escape_html(json.dumps(sidebar_stuff))})"></style> <!-- Just a way to run this code once the elements exist. -->
+            <style onload="attach_snp(this.closest('.snp_outer'), {self.cell_lineno}, {self.provenance_is_off_by_n_lines}, {json_for_attr(self.user_call_info)}, {json_for_attr(sidebar_stuff)})"></style> <!-- Just a way to run this code once the elements exist. -->
             </div>
         """
         # return "<b id='asdf'>bold</b><script>console.log(IPython.notebook.notebook_name); console.log(Jupyter.notebook.get_cells()); document.querySelector('#asdf').innerHTML = '' + Jupyter.notebook.get_cells();</script>"
@@ -667,42 +647,44 @@ class SNP():
 # ys = tag_with_provenance(np.sin(xs), 5, 5, 5, 15)
 # lines = tag_with_provenance(ax.plot(xs, ys), 6, 8, 6, 23)
 
-# tag_with_provenance() gives the returned object an `_snp_loc` attribute, which is a tuple of (lineno, col_offset, end_lineno, end_col_offset)
+# tag_with_provenance() gives the returned object an `_snp_came_from_call` attribute, which is a tuple of (lineno, col_offset, end_lineno, end_col_offset)
 
 # Thanks GPT-4, this works, apparently.
 
-class LocedTuple(tuple):
-    def __new__(cls, iterable, loc):
+
+
+class TaggedTuple(tuple):
+    def __new__(cls, iterable, call_loc):
         out = tuple.__new__(cls, iterable)
-        out._snp_loc = loc
+        out._snp_came_from_call = call_loc
         return out
 
-class LocedStr(str):
-    def __new__(cls, string, loc):
+class TaggedStr(str):
+    def __new__(cls, string, call_loc):
         out = str.__new__(cls, string)
-        out._snp_loc = loc
+        out._snp_came_from_call = call_loc
         return out
 
-class LocedList(list):
-    def __init__(self, iterable, loc):
-        self._snp_loc = loc
+class TaggedList(list):
+    def __init__(self, iterable, call_loc):
+        self._snp_came_from_call = call_loc
         super().__init__(iterable)
 
-class LocedDict(dict):
-    def __init__(self, dictionary, loc):
-        self._snp_loc = loc
+class TaggedDict(dict):
+    def __init__(self, dictionary, call_loc):
+        self._snp_came_from_call = call_loc
         super().__init__(dictionary)
 
-class LocedInt(int):
-    def __new__(cls, x, loc):
+class TaggedInt(int):
+    def __new__(cls, x, call_loc):
         out = int.__new__(cls, x)
-        out._snp_loc = loc
+        out._snp_came_from_call = call_loc
         return out
 
-class LocedFloat(float):
-    def __new__(cls, x, loc):
+class TaggedFloat(float):
+    def __new__(cls, x, call_loc):
         out = float.__new__(cls, x)
-        out._snp_loc = loc
+        out._snp_came_from_call = call_loc
         return out
 
 # code = \
@@ -717,67 +699,80 @@ class LocedFloat(float):
 # print(code)
 # tree = ast.parse(code)
 
-def tag_with_provenance(ret_obj, receiver, lineno, col_offset, end_lineno, end_col_offset):
-    loc = (lineno, col_offset, end_lineno, end_col_offset)
+def tag_with_provenance(ret_obj, receiver, func_code, call_num, lineno, col_offset, end_lineno, end_col_offset):
+    # Two methods for referring to the same call:
+    # 1. call code and number e.g. ("ax.set_title", 3) for the front end selection state, to be somewhat robust to code changes
+    # 2. code location e.g.(7,0,7,23) for matching with call information from the type checker
+
+    call_loc = ((func_code, call_num), (lineno, col_offset, end_lineno, end_col_offset))
 
     try:
         method_call_locs = receiver._snp_method_call_locs
     except:
         method_call_locs = set()
 
-    method_call_locs.add(loc)
+    method_call_locs.add(call_loc)
 
     try:
         receiver._snp_method_call_locs = method_call_locs
     except:
         pass
 
-    if hasattr(ret_obj, "_snp_loc"):
+    if hasattr(ret_obj, "_snp_came_from_call"):
         return ret_obj # Don't rewrite oldest loc.
 
     try:
-        ret_obj._snp_loc = loc
+        ret_obj._snp_came_from_call = call_loc
         return ret_obj
     except:
         if isinstance(ret_obj, tuple):
-            return LocedTuple(ret_obj, loc)
+            return TaggedTuple(ret_obj, call_loc)
         elif isinstance(ret_obj, str):
-            return LocedStr(ret_obj, loc)
+            return TaggedStr(ret_obj, call_loc)
         elif isinstance(ret_obj, list):
-            return LocedList([tag_with_provenance(child, receiver, lineno, col_offset, end_lineno, end_col_offset) for child in ret_obj], loc)
+            return TaggedList([tag_with_provenance(child, receiver, func_code, call_num, lineno, col_offset, end_lineno, end_col_offset) for child in ret_obj], call_loc)
         elif isinstance(ret_obj, dict):
-            return LocedDict(ret_obj, loc)
+            return TaggedDict(ret_obj, call_loc)
         elif isinstance(ret_obj, int):
-            return LocedInt(ret_obj, loc)
+            return TaggedInt(ret_obj, call_loc)
         elif isinstance(ret_obj, float):
-            return LocedFloat(ret_obj, loc)
+            return TaggedFloat(ret_obj, call_loc)
         return ret_obj
 
 class ProvenanceTagger(ast.NodeTransformer):
-    none = ast.parse("None").body[0].value
+    # none = ast.parse("None").body[0].value
+
+    def __init__(self) -> None:
+        self.call_nums = {}
+        super().__init__()
 
     def visit_Call(self, node):
-        loc = (node.lineno, node.col_offset, node.end_lineno, node.end_col_offset)
-#         print(loc)
 
         # When the form is receiver.attribute(...), log that there is call on this receiver.
-
         match node:
             case ast.Call(func = ast.Attribute(value)):
+                loc = (node.lineno, node.col_offset, node.end_lineno, node.end_col_offset)
+                # print(loc)
+                # print(ast.unparse(node.func))
+                func_code = ast.unparse(node.func)
                 receiver = value
-            case _:
-                receiver = ProvenanceTagger.none
+                call_num = self.call_nums.get(func_code, 0) + 1
+                wrapped = ast.Call(ast.Name("tag_with_provenance", ast.Load()), [
+                    node,
+                    receiver,
+                    ast.Constant(func_code),
+                    ast.Constant(call_num),
+                    ast.Constant(node.lineno),
+                    ast.Constant(node.col_offset),
+                    ast.Constant(node.end_lineno),
+                    ast.Constant(node.end_col_offset)
+                ], [])
+                # print(ast.unparse(wrapped))
+                self.call_nums[func_code] = call_num
 
-        wrapped = ast.Call(ast.Name("tag_with_provenance", ast.Load()), [
-            node,
-            receiver,
-            ast.Constant(node.lineno),
-            ast.Constant(node.col_offset),
-            ast.Constant(node.end_lineno),
-            ast.Constant(node.end_col_offset)
-        ], [])
-#         print(ast.unparse(wrapped))
-        return wrapped
+                return wrapped
+            case _:
+                return node
 
 # print(astor.dump_tree(ast.parse(tree)))
 
@@ -813,8 +808,8 @@ def unparse_mypy_expr(expr : mypy.nodes.Expression):
             return str(expr)
 
 
-def add_loc_json(type_json_dict, node):
-    type_json_dict["loc"] = {
+def add_pos_json(type_json_dict, node):
+    type_json_dict["pos"] = {
         "line":       node.line,
         "column":     node.column,
         "end_line":   node.end_line,
@@ -828,7 +823,7 @@ def to_json_dict(node, type):
     type_json_dict = type.serialize()
     if not isinstance(type_json_dict, dict): # IDK why we sometimes get a string
         type_json_dict = dict()
-    return add_loc_json(type_json_dict, node)
+    return add_pos_json(type_json_dict, node)
 
 # callable_type_ex = None
 def callable_type_json(callable_type, user_typed_locals):
@@ -882,7 +877,7 @@ class MyVisitor(TraverserVisitor):
             # For consistency with places where where that is not the case, let us unapply it
             callee_type_unapplied = callee_type.definition.type
             callee = callable_type_json(callee_type_unapplied, self.user_typed_locals)
-            add_loc_json(callee, node.callee)
+            add_pos_json(callee, node.callee)
 
             self.out.append({
                 "call":       to_json_dict(node, self.types_dict.get(node)),
