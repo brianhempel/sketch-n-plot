@@ -10,6 +10,7 @@ declare var default_value_from_name : Array<[string, any, string]>;
 
 declare var pre_cell_execute_handlers_to_first_unbind_when_this_file_is_rerun : Function[];
 declare var select_lineno_after_execute : number | undefined
+declare var open_artists_after_execute  : string[] | undefined
 
 ellipses_svg_html = `<svg height="14pt" viewBox="0 0 14 14" width="14pt" xmlns="http://www.w3.org/2000/svg"><path d="m14 8c0 1.65685-1.3431 3-3 3h-8c-1.65685 0-2.99999935-1.34315-2.99999959-3 .00000047-1.65685 1.34314959-3 2.99999959-3h8c1.6569 0 3 1.34315 3 3z" fill="#fff"/><g fill-rule="evenodd"><path d="m3 7c.55229 0 1 .44772 1 1s-.44771 1-1 1c-.55228 0-1-.44772-1-1s.44772-1 1-1z"/><path d="m7 7c.55229 0 1 .44772 1 1s-.44771 1-1 1c-.55228 0-1-.44772-1-1s.44772-1 1-1z"/><path d="m11 7c.5523 0 1 .44772 1 1s-.4477 1-1 1-1-.44772-1-1 .4477-1 1-1z"/></g></svg>`
 
@@ -195,7 +196,7 @@ function select(snp_state, key) {
   selected_item && (selected_item.open = true)
 
   place_inspector(snp_state)
-  snp_state.snp_outer.querySelectorAll(".add_hint").forEach(hide)
+  // snp_state.snp_outer.querySelectorAll(".add_hint").forEach(hide)
 }
 
 function shape_selection_key(shape) : SelectedItem {
@@ -397,7 +398,7 @@ function make_dropdown(sync_editor_and_output, els, options= { selected_el: unde
   }
 
   function open_dropdown(ev) {
-    let opened_dropdown = make_el("div", {}, {position: "absolute", "z-index":10}, {}, Array.from(els).map(el => {
+    let opened_dropdown = make_el("div", {}, {position: "absolute", "z-index":10, border: "solid 1px gray", boxShadow: "1px 1px 6px black"}, {}, Array.from(els).map(el => {
       return make_el("div", {class: "option"}, {background: "white", cursor: "pointer"}, {
         click: ev => {
           ev.stopPropagation();
@@ -875,8 +876,8 @@ function place_over_shape(snp_state, shape, el) {
   let left = shapeRect.left + shapeRect.width/2 - elRect.width/2
   top = Math.max(0, Math.min(top, plot_height - elRect.height))
   left = Math.max(0, Math.min(left, plot_width - elRect.width))
-  // console.log("shapeRect", shapeRect)
-  // console.log("elRect", elRect)
+  console.log("shapeRect", shapeRect)
+  console.log("elRect", elRect)
   el.style.position = "absolute"
   el.style.top = `${top}px`
   el.style.left = `${left}px`
@@ -917,9 +918,14 @@ function arg_defaults_from_callee_type(callee) : Arg[] {
   }).slice(callee.def_extras.first_arg !== undefined ? 1 : 0) // ignore first arg (self) if def_extras.first_arg is defined
 }
 
+function catalog_open_artists(snp_state) {
+  open_artists_after_execute = (Array.from(snp_state.sidebar.children) as any[]).filter(el => el.open).map(el => el.artistName)
+}
+
 function hard_rerun(snp_state) {
   snp_state.busy = false;
   snp_state.cell.code_mirror.getAllMarks().forEach(mark => mark.clear());
+  catalog_open_artists(snp_state)
   snp_state.cell.execute();
 }
 
@@ -1207,11 +1213,77 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
     snp_outer.querySelectorAll(".add_hint").forEach(hide)
   });
 
-  build_sidebar(snp_state)
+  const methods_to_place_on_canvas = build_sidebar(snp_state)
 
   attach_events_to_hover_regions(snp_state)
 
 
+  function replace_to_avoid_overlap(el, avoid) {
+    const el_rect = relativeBoundingRect(el, snp_outer);
+    const avoid_el = avoid.find(avoid_el => {
+      const avoid_rect = relativeBoundingRect(avoid_el, snp_outer);;
+      return el_rect.left < avoid_rect.right && avoid_rect.left < el_rect.right && el_rect.top < avoid_rect.bottom && avoid_rect.top < el_rect.bottom
+    })
+    if (avoid_el) {
+      el.style.top = relativeBoundingRect(avoid_el, snp_outer).bottom + 3 + "px"
+      replace_to_avoid_overlap(el, avoid)
+    }
+  }
+
+  const possible_targets = Array.from(snp_state.hover_regions_svg().querySelectorAll('[data-artist-names]') as any[]).filter(el => JSON.parse(el.dataset.artistNames).length > 0)
+  const placed_methods = []
+  methods_to_place_on_canvas.forEach(el => {
+    const shape = possible_targets.find(shape => JSON.parse(shape.dataset.artistNames).includes(el.artistName))
+
+    el.style.display = "inline-block";
+    el.style.borderRadius = "3px";
+    el.style.fontSize = "10px";
+    el.style.background = "#f4f4f4";
+    el.style.border = "solid 1px #ddd";
+    el.style.lineHeight = "normal";
+    el.style.padding = "1px";
+    el.style.cursor = "pointer";
+    el.classList.add("add_hint");
+    el.classList.add("remove_on_new_hover_regions");
+
+    snp_outer.appendChild(el)
+    place_over_shape(snp_state, shape, el)
+
+    replace_to_avoid_overlap(el, placed_methods)
+
+    placed_methods.push(el)
+  })
+
+  // snp_state.hover_regions_svg().querySelectorAll('[data-add-hint]:not([data-loc])').forEach(hover_region => {
+  //   let hint = document.createElement("div");
+  //   hint.style.display = "inline-block";
+  //   hint.style.borderRadius = "3px";
+  //   hint.style.fontSize = "10px";
+  //   hint.style.background = "#f4f4f4";
+  //   hint.style.border = "solid 1px #ddd";
+  //   hint.style.lineHeight = "normal";
+  //   hint.style.padding = "1px";
+  //   hint.style.cursor = "pointer";
+  //   hint.innerHTML = hover_region.dataset.addHint;
+  //   hint.classList.add("add_hint");
+  //   hint.classList.add("remove_on_new_hover_regions");
+  //   snp_outer.appendChild(hint);
+  //   place_over_shape(snp_state, hover_region, hint);
+  //   hint.addEventListener("click", ev => {
+  //     // https://www.growingwiththeweb.com/2016/07/redirecting-dom-events.html
+  //     hover_region.dispatchEvent(new MouseEvent("click", ev));
+  //     ev.preventDefault();
+  //     ev.stopImmediatePropagation();
+  //   });
+  //   hide(hint);
+  //   // console.log(hint)
+  // });
+
+
+  if ("open_artists_after_execute" in window && open_artists_after_execute !== undefined) {
+    (Array.from(snp_state.sidebar.children) as any[]).filter(el => open_artists_after_execute.includes(el.artistName)).forEach(el => el.open = true)
+    delete window.open_artists_after_execute
+  }
   if ("select_lineno_after_execute" in window) {
     snp_state.hover_regions_svg().querySelectorAll('[data-pos][data-func-code-and-num]').forEach(hover_region => {
       const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.pos);
@@ -1234,6 +1306,7 @@ function build_sidebar(snp_state) {
 
   // console.log("sidebar stuff", {selectable_artists, methods, calls})
   // console.log("sidebar stuff", JSON.stringify({selectable_artists, methods, calls}))
+  let methods_to_place_on_canvas = []
 
   selectable_artists.forEach(({id, names}) => {
     const artist_name = shortest_qualified_name(names)
@@ -1260,15 +1333,13 @@ function build_sidebar(snp_state) {
 
       widget.style.display = "inline-block"
       if (is_single_call) {
-        return make_el("label", { funcCodeAndNum: func_code_and_num }, { display: "block" }, {}, [
-          make_el("input", { type: "checkbox", checked: "true" }, {}, { click: delete_code }, []),
-          " ",
+        return make_el("span", { funcCodeAndNum: func_code_and_num }, { display: "grid", gridTemplateColumns: "min-content 333px" }, {}, [ // span, not label, to force you to click the box itself to remove the element
+          make_el("input", { type: "checkbox", checked: "true" }, { alignSelf: "start" }, { click: delete_code }, []),
           widget
         ])
       } else {
-        return make_el("div", { funcCodeAndNum: func_code_and_num }, {}, {}, [
-          make_el("span", {}, {}, { click: delete_code }, ["❌"]),
-          " ",
+        return make_el("div", { funcCodeAndNum: func_code_and_num }, { display: "grid", gridTemplateColumns: "min-content 333px" }, {}, [
+          make_el("span", { alignSelf: "start" }, {}, { click: delete_code }, ["❌"]),
           widget
         ])
       }
@@ -1310,13 +1381,25 @@ function build_sidebar(snp_state) {
           ])
         ]
       } else {
-        kids = ["➕ ", new_code_button]
+        kids = ["➕ add ", new_code_button]
       }
 
-      new_methods.push(make_el("div", {}, {}, { click: add_code }, kids))
-    })
+      // Hide receiver and args
+      let method_canvas_text = kids.map(el => el.textContent).join("").trim().replace(/\([\S\s]*/, "").replace(/^.*\./, "")
+      if (!method_canvas_text.startsWith("set_")) {
+        method_canvas_text = "new " + method_canvas_text
+      }
 
-    sidebar.append(make_el("details", { "artistName" : artist_name }, {}, {}, [
+      // Heuristic for now: only keep the last button with the given name
+      methods_to_place_on_canvas = methods_to_place_on_canvas.filter(method => method.innerText !== method_canvas_text)
+
+      methods_to_place_on_canvas.push(make_el("div", { artistName: artist_name }, {}, { click: add_code }, [method_canvas_text]))
+
+      new_methods.push(make_el("div", {}, { cursor: "pointer" }, { click: add_code }, kids))
+    })
+    // console.log(methods_to_place_on_canvas)
+
+    sidebar.append(make_el("details", { artistName: artist_name }, {}, { toggle: ev => catalog_open_artists(snp_state) }, [
       make_el("summary", {}, { display: "list-item" }, {}, [artist_name]),
       ...call_widgets,
       ...new_methods
@@ -1325,9 +1408,11 @@ function build_sidebar(snp_state) {
 
   sidebar.style.position = "absolute"
   sidebar.style.top      = "0"
-  sidebar.style.left     =  `${snp_state.hover_regions_svg().getBoundingClientRect().width + 20}px`
+  sidebar.style.left     =  `${snp_state.hover_regions_svg().getBoundingClientRect().width + 15}px`
 
   snp_state.hover_regions_svg().after(sidebar)
+
+  return methods_to_place_on_canvas
 }
 
 
@@ -1346,9 +1431,9 @@ function attach_events_to_hover_regions(snp_state) {
 
   snp_state.hover_regions_svg().querySelectorAll('[data-artist-names],[data-func-code-and-num]').forEach(hover_region => {
     const selection_key = shape_selection_key(hover_region)
-    console.log(selection_key)
+    // console.log(selection_key)
     const sidebar_item = selected_sidebar_item(snp_state, selection_key)
-    console.log(sidebar_item)
+    // console.log(sidebar_item)
     if (sidebar_item !== undefined) {
       hover_region.addEventListener("click", ev => {
         if (selected_shapes(snp_state).includes(hover_region)) {

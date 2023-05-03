@@ -6,6 +6,7 @@ declare var int_to_arg_kind: Array<string>;
 declare var default_value_from_name: Array<[string, any, string]>;
 declare var pre_cell_execute_handlers_to_first_unbind_when_this_file_is_rerun: Function[];
 declare var select_lineno_after_execute: number | undefined;
+declare var open_artists_after_execute: string[] | undefined;
 interface Array<T> {
     addAsSet(elem: T): Array<T>;
     removeAsSet(elem: T): Array<T>;
@@ -71,6 +72,7 @@ interface Arg {
     type_compatible_local_names: string[];
 }
 declare function arg_defaults_from_callee_type(callee: any): Arg[];
+declare function catalog_open_artists(snp_state: any): void;
 declare function hard_rerun(snp_state: any): void;
 declare function make_call_widget(callee: any, given_positional_args: Arg[], given_keyword_args: Arg[], callee_code: string, code_mirror: any, mark: any, snp_state: any): HTMLDivElement;
 declare function loced_widget_from_code(call_info: any, cell_lineno: any, cm: any, snp_state: any): {
@@ -92,5 +94,5 @@ declare function replace_hover_regions(snp_state: any, new_svg_str: any): void;
 declare function redraw_cell(snp_state: any): void;
 declare function attach_snp(snp_outer: any, cell_lineno: any, provenance_is_off_by_n_lines: any, user_call_info: any, sidebar_stuff: any): void;
 declare function shortest_qualified_name(names: any): any;
-declare function build_sidebar(snp_state: any): void;
+declare function build_sidebar(snp_state: any): any[];
 declare function attach_events_to_hover_regions(snp_state: any): void;
