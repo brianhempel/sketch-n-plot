@@ -95,7 +95,7 @@ function selected_shapes(snp_state) {
     else if ("func_code" in snp_state.canvas_selection) {
         const target = [snp_state.canvas_selection.func_code, snp_state.canvas_selection.call_num];
         snp_state.hover_regions_svg().querySelectorAll(`[data-func-code-and-num]`).forEach(shape => {
-            if (equal_by_json(target, shape.dataset.funcCodeAndNum)) {
+            if (equal_by_json(target, JSON.parse(shape.dataset.funcCodeAndNum))) {
                 selected_shapes.push(shape);
             }
         });
@@ -103,7 +103,11 @@ function selected_shapes(snp_state) {
     return selected_shapes;
 }
 function select(snp_state, key) {
+    console.log("select", key);
     snp_state.canvas_selection = key;
+    if (key === undefined) {
+        return;
+    }
     // window.last_selected_shape = shape
     // console.log(window.last_selected_shape)
     selected_shapes(snp_state).forEach(shape => {
@@ -111,9 +115,11 @@ function select(snp_state, key) {
         if (!drawable) {
             return;
         }
-        drawable.dataset.oldStrokeWidth = drawable.getAttribute("stroke-width");
-        drawable.setAttribute("stroke-width", "3.0");
+        drawable.setAttribute("stroke-width", "4.0");
     });
+    Array.from(snp_state.sidebar.children).forEach(el => el.open = false);
+    const selected_item = selected_sidebar_item(snp_state, key);
+    selected_item && (selected_item.open = true);
     place_inspector(snp_state);
     snp_state.snp_outer.querySelectorAll(".add_hint").forEach(hide);
 }
@@ -127,12 +133,23 @@ function shape_selection_key(shape) {
     }
     return undefined;
 }
-// START HERE clicking on ylabel doesn't select
+function selected_sidebar_item(snp_state, key) {
+    if (key === undefined) {
+        return undefined;
+    }
+    else if ("name" in key) {
+        return Array.from(snp_state.sidebar.children).find(el => el.artistName === key.name);
+    }
+    else if ("func_code" in key) {
+        const target = [key.func_code, key.call_num];
+        return Array.from(snp_state.sidebar.children).find(el => Array.from(el.children).some(child => child.funcCodeAndNum && equal_by_json(child.funcCodeAndNum, target)));
+    }
+}
 // function select(snp_state, selected_item) {
 //   // window.last_selected_shape = shape
 //   // console.log(window.last_selected_shape)
 //   snp_state.selected_shape = shape
-//   shape.dataset.oldStrokeWidth = shape.getAttribute("stroke-width")
+//   shape.dataset.origStrokeWidth = shape.getAttribute("stroke-width")
 //   shape.setAttribute("stroke-width", "3.0")
 //   place_inspector(snp_state)
 //   snp_state.snp_outer.querySelectorAll(".add_hint").forEach(hide)
@@ -143,7 +160,7 @@ function deselect_all(snp_state) {
         if (!drawable) {
             return;
         }
-        drawable.setAttribute("stroke-width", drawable.dataset.oldStrokeWidth);
+        drawable.setAttribute("stroke-width", drawable.dataset.origStrokeWidth || "0");
     });
     snp_state.canvas_selection = undefined;
     snp_state.inspector.remove();
@@ -823,54 +840,59 @@ function make_call_widget(callee, given_positional_args, given_keyword_args, cal
     widget.addEventListener("mousedown", ev => {
         ev.stopPropagation();
     });
+    widget.addEventListener("click", ev => {
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+    });
     return widget;
 }
-function loced_widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
-    let loced_widgets = [];
-    cell_items.forEach(({ call, callee, given_args }) => {
-        function item_to_start_pos(item) {
-            return { line: item.pos.line - cell_lineno, ch: item.pos.column };
-        }
-        function item_to_end_pos(item) {
-            return { line: item.pos.end_line - cell_lineno, ch: item.pos.end_column };
-        }
-        const start_pos = item_to_start_pos(call);
-        const end_pos = item_to_end_pos(call);
-        const mark = cm.markText(start_pos, end_pos, {
-            // replacedWith: widget,
-            inclusiveRight: true,
-            inclusiveLeft: true,
-        });
-        let callee_code = cm.getRange(item_to_start_pos(callee), item_to_end_pos(callee));
-        let callee_has_self_arg = callee.def_extras.first_arg !== undefined;
-        let given_args2 = [];
-        given_args.forEach((given_arg, arg_i) => {
-            const arg_kind = int_to_arg_kind[given_arg.kind];
-            const arg_i_at_func_def = given_arg["name"] ? callee.arg_names.indexOf(given_arg.name) : (callee_has_self_arg ? arg_i + 1 : arg_i);
-            const arg_val_code = cm.getRange(item_to_start_pos(given_arg), item_to_end_pos(given_arg));
-            given_args2.push({
-                name: given_arg.name,
-                kind: arg_kind,
-                code: arg_val_code,
-                type: callee.arg_types[arg_i_at_func_def],
-                code_type: undefined,
-                type_compatible_local_names: callee.arg_type_compatible_local_names[arg_i_at_func_def]
-            });
-        });
-        // console.log("given_args2", given_args2)
-        // console.log("callee.arg_names", callee.arg_names)
-        const [given_positional_args, given_keyword_args] = given_args2.partition(arg => !arg.name);
-        // console.log(arg_defaults.map(({name, code}) => `${name}=${code}`).join(", "))
-        const widget = make_call_widget(callee, given_positional_args, given_keyword_args, callee_code, cm, mark, snp_state);
-        loced_widgets.push({
-            start_pos: start_pos,
-            end_pos: end_pos,
-            mark: mark,
-            method_name: (callee.name || "").split(" ")[0] || "",
-            widget: widget
+function loced_widget_from_code(call_info, cell_lineno, cm, snp_state) {
+    const { call, callee, given_args } = call_info;
+    function item_to_start_pos(item) {
+        return { line: item.pos.line - cell_lineno, ch: item.pos.column };
+    }
+    function item_to_end_pos(item) {
+        return { line: item.pos.end_line - cell_lineno, ch: item.pos.end_column };
+    }
+    const start_pos = item_to_start_pos(call);
+    const end_pos = item_to_end_pos(call);
+    const mark = cm.markText(start_pos, end_pos, {
+        // replacedWith: widget,
+        inclusiveRight: true,
+        inclusiveLeft: true,
+    });
+    let callee_code = cm.getRange(item_to_start_pos(callee), item_to_end_pos(callee));
+    let callee_has_self_arg = callee.def_extras.first_arg !== undefined;
+    let given_args2 = [];
+    given_args.forEach((given_arg, arg_i) => {
+        const arg_kind = int_to_arg_kind[given_arg.kind];
+        const arg_i_at_func_def = given_arg["name"] ? callee.arg_names.indexOf(given_arg.name) : (callee_has_self_arg ? arg_i + 1 : arg_i);
+        const arg_val_code = cm.getRange(item_to_start_pos(given_arg), item_to_end_pos(given_arg));
+        given_args2.push({
+            name: given_arg.name,
+            kind: arg_kind,
+            code: arg_val_code,
+            type: callee.arg_types[arg_i_at_func_def],
+            code_type: undefined,
+            type_compatible_local_names: callee.arg_type_compatible_local_names[arg_i_at_func_def]
         });
     });
-    return loced_widgets;
+    // console.log("given_args2", given_args2)
+    // console.log("callee.arg_names", callee.arg_names)
+    const [given_positional_args, given_keyword_args] = given_args2.partition(arg => !arg.name);
+    // console.log(arg_defaults.map(({name, code}) => `${name}=${code}`).join(", "))
+    const widget = make_call_widget(callee, given_positional_args, given_keyword_args, callee_code, cm, mark, snp_state);
+    return {
+        start_pos: start_pos,
+        end_pos: end_pos,
+        mark: mark,
+        method_name: (callee.name || "").split(" ")[0] || "",
+        call_info: call_info,
+        widget: widget
+    };
+}
+function loced_widgets_from_code(cell_items, cell_lineno, cm, snp_state) {
+    return cell_items.map(call_info => loced_widget_from_code(call_info, cell_lineno, cm, snp_state));
 }
 // returns undefined or an array
 // function tree_path(root, target) {
@@ -952,7 +974,7 @@ function redraw_cell(snp_state) {
                 const json = msg.content.data["application/json"];
                 snp_state.cell_lineno = json.cell_lineno;
                 snp_state.provenance_is_off_by_n_lines = json.provenance_is_off_by_n_lines;
-                attach_widgets_to_hover_regions(snp_state, json.user_call_info);
+                attach_events_to_hover_regions(snp_state);
             }
             // infer_types_and_attach_widgets(snp_state);
         }
@@ -986,7 +1008,10 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
         hover_regions_svg: () => snp_outer.querySelector("svg"),
         stdout_stderr: snp_outer.querySelector(".stdout_stderr"),
         inspector: document.createElement("div"),
-        sidebar: document.createElement("div")
+        sidebar: document.createElement("div"),
+        selectable_artists: sidebar_stuff.selectable_artists,
+        methods: sidebar_stuff.methods,
+        calls: sidebar_stuff.calls,
     };
     snp_outer.addEventListener("mouseenter", () => {
         snp_outer.querySelectorAll(".add_hint").forEach(show);
@@ -994,8 +1019,8 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
     snp_outer.addEventListener("mouseleave", () => {
         snp_outer.querySelectorAll(".add_hint").forEach(hide);
     });
-    attach_widgets_to_hover_regions(snp_state, user_call_info);
-    build_sidebar(snp_state, sidebar_stuff);
+    build_sidebar(snp_state);
+    attach_events_to_hover_regions(snp_state);
     if ("select_lineno_after_execute" in window) {
         snp_state.hover_regions_svg().querySelectorAll('[data-pos][data-func-code-and-num]').forEach(hover_region => {
             const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.pos);
@@ -1010,39 +1035,66 @@ function attach_snp(snp_outer, cell_lineno, provenance_is_off_by_n_lines, user_c
 function shortest_qualified_name(names) {
     return names.sort(compare_qualified_names)[0];
 }
-function build_sidebar(snp_state, sidebar_stuff) {
-    const { sidebar, cell_lineno, cell, snp_outer } = snp_state;
-    console.log("sidebar stuff", sidebar_stuff);
-    console.log("sidebar stuff", JSON.stringify(sidebar_stuff));
-    sidebar_stuff.forEach(({ names, id, methods, calls }) => {
-        const shortest_name = shortest_qualified_name(names);
-        const method_names_called = [];
-        const call_widgets = loced_widgets_from_code(calls, cell_lineno, cell.code_mirror, snp_state).map(({ method_name, widget }) => {
-            method_names_called.push(method_name);
-            const is_single_call = methods.some(({ name, max_calls }) => name === method_name && max_calls === 1);
+function build_sidebar(snp_state) {
+    const { sidebar, cell_lineno, cell: { code_mirror }, snp_outer, selectable_artists, methods, calls } = snp_state;
+    // console.log("sidebar stuff", {selectable_artists, methods, calls})
+    // console.log("sidebar stuff", JSON.stringify({selectable_artists, methods, calls}))
+    selectable_artists.forEach(({ id, names }) => {
+        const artist_name = shortest_qualified_name(names);
+        const artist_methods = methods.filter(method => method.show_on.includes(id));
+        const artist_calls = calls.filter(call => call.show_on.includes(id));
+        const methods_called = [];
+        const call_widgets = artist_calls.map(call_info => {
+            const { name, receiver, max_calls, func_code_and_num } = call_info;
+            const { widget, mark } = loced_widget_from_code(call_info, cell_lineno, code_mirror, snp_state);
+            methods_called.push([receiver, name]);
+            const is_single_call = max_calls === 1;
+            const delete_code = ev => {
+                const { from, to } = mark.find();
+                // console.log(mark.find())
+                code_mirror.replaceRange("", from, to);
+                ev.stopImmediatePropagation();
+                hard_rerun(snp_state);
+            };
             widget.style.display = "inline-block";
             if (is_single_call) {
-                return make_el("label", {}, { display: "block" }, {}, [
-                    make_el("input", { type: "checkbox", checked: "true" }, {}, {}, []),
+                return make_el("label", { funcCodeAndNum: func_code_and_num }, { display: "block" }, {}, [
+                    make_el("input", { type: "checkbox", checked: "true" }, {}, { click: delete_code }, []),
                     " ",
                     widget
                 ]);
             }
             else {
-                return make_el("div", {}, {}, {}, [
-                    make_el("span", {}, {}, {}, ["❌"]),
+                return make_el("div", { funcCodeAndNum: func_code_and_num }, {}, {}, [
+                    make_el("span", {}, {}, { click: delete_code }, ["❌"]),
                     " ",
                     widget
                 ]);
             }
         });
+        // names.includes("ax.yaxis.label") && console.log(methods_called)
+        // names.includes("ax.yaxis.label") && console.log(artist_methods)
         const new_methods = [];
-        methods.forEach(({ name, type, max_calls }) => {
-            let new_code_button = make_new_code_button(cell.code_mirror, shortest_name, name, type, snp_state);
-            new_code_button.style.display = "inline-block";
+        artist_methods.forEach(({ name, receiver, type, max_calls }) => {
+            let receiver_name = shortest_qualified_name(selectable_artists.find(({ id }) => id === receiver).names || [""]);
+            let line_count = code_mirror.getValue().split("\n").length;
+            let mark = code_mirror.markText({ line: line_count - 2, ch: 0 }, { line: line_count - 2, ch: 0 }, { inclusiveRight: true, inclusiveLeft: true, clearWhenEmpty: false }); // insert at end, for now...
+            let arg_defaults = arg_defaults_from_callee_type(type);
+            let [required_positional_arg, required_keyword_args] = arg_defaults.filter(arg => arg.kind === "ARG_POS" || arg.kind === "ARG_NAMED").partition(arg => arg.kind === "ARG_POS");
+            let required_positional_arg_codes = required_positional_arg.map(arg => arg.code);
+            let required_keyword_arg_codes = required_keyword_args.map(arg => `${arg.name}=${arg.code}`);
+            let new_code = `${receiver_name}.${name}(${required_positional_arg_codes.concat(required_keyword_arg_codes).join(",")})\n`;
+            let add_code = ev => {
+                const { from, to } = mark.find();
+                // console.log(code)
+                code_mirror.replaceRange(new_code, from, to);
+                select_lineno_after_execute = from.line;
+                hard_rerun(snp_state);
+            };
+            let new_code_button = make_el("div", {}, { display: "inline-block" }, {}, [new_code]);
             let kids = [];
             if (max_calls === 1) {
-                if (method_names_called.includes(name)) {
+                if (methods_called.some(called => equal_by_json(called, [receiver, name]))) {
                     return;
                 }
                 kids = [
@@ -1056,34 +1108,35 @@ function build_sidebar(snp_state, sidebar_stuff) {
             else {
                 kids = ["➕ ", new_code_button];
             }
-            new_methods.push(make_el("div", {}, {}, {}, kids));
+            new_methods.push(make_el("div", {}, {}, { click: add_code }, kids));
         });
-        sidebar.append(make_el("details", {}, {}, {}, [
-            make_el("summary", {}, { display: "list-item" }, {}, [shortest_name]),
+        sidebar.append(make_el("details", { "artistName": artist_name }, {}, {}, [
+            make_el("summary", {}, { display: "list-item" }, {}, [artist_name]),
             ...call_widgets,
             ...new_methods
         ]));
     });
-    snp_outer.append(sidebar);
+    sidebar.style.position = "absolute";
+    sidebar.style.top = "0";
+    sidebar.style.left = `${snp_state.hover_regions_svg().getBoundingClientRect().width + 20}px`;
+    snp_state.hover_regions_svg().after(sidebar);
 }
-function attach_widgets_to_hover_regions(snp_state, user_call_info) {
-    const { inspector, cell_lineno, cell, snp_outer } = snp_state;
+function attach_events_to_hover_regions(snp_state) {
+    // const { inspector, cell_lineno, cell, snp_outer } = snp_state
     // console.log(msg.content.user_expressions.inferred)
-    const cell_items = user_call_info.filter(call_info => call_info.callee.pos.line >= cell_lineno);
-    console.log("cell items", cell_items);
+    // const cell_items = user_call_info.filter(call_info => call_info.callee.pos.line >= cell_lineno)
+    // console.log("cell items", cell_items);
     // console.log(JSON.stringify(cell_items));
-    const loced_widgets = loced_widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state);
+    // const loced_widgets = loced_widgets_from_code(cell_items, cell_lineno, cell.code_mirror, snp_state)
     // console.log("loced_widgets", loced_widgets);
-    snp_state.hover_regions_svg().querySelectorAll('[data-pos]').forEach(hover_region => {
-        const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.pos);
-        const [shape_start_pos, shape_end_pos] = [
-            { line: lineno - 1 - snp_state.provenance_is_off_by_n_lines, ch: col_offset },
-            { line: end_lineno - 1 - snp_state.provenance_is_off_by_n_lines, ch: end_col_offset }
-        ];
-        // console.log("shape_loc", [shape_start_pos, shape_end_pos])
-        const { widget, mark } = loced_widgets.find(({ start_pos, end_pos }) => equal_by_json([start_pos, end_pos], [shape_start_pos, shape_end_pos])) || { widget: undefined, mark: undefined };
-        // START HERE: selection/deselection not working
-        if (widget) {
+    // Set origStrokeWidth on all elements
+    snp_state.hover_regions_svg().querySelectorAll("[stroke-width]").forEach(drawable => drawable.dataset.origStrokeWidth = drawable.getAttribute("stroke-width"));
+    snp_state.hover_regions_svg().querySelectorAll('[data-artist-names],[data-func-code-and-num]').forEach(hover_region => {
+        const selection_key = shape_selection_key(hover_region);
+        console.log(selection_key);
+        const sidebar_item = selected_sidebar_item(snp_state, selection_key);
+        console.log(sidebar_item);
+        if (sidebar_item !== undefined) {
             hover_region.addEventListener("click", ev => {
                 if (selected_shapes(snp_state).includes(hover_region)) {
                     deselect_all(snp_state);
@@ -1091,16 +1144,57 @@ function attach_widgets_to_hover_regions(snp_state, user_call_info) {
                 else {
                     deselect_all(snp_state);
                     select(snp_state, shape_selection_key(hover_region));
-                    inspector.innerHTML = "";
-                    snp_outer.appendChild(inspector);
-                    inspector.appendChild(widget);
-                    const { from, to } = mark.find();
-                    cell.code_mirror.setSelection(from, to);
+                    // inspector.innerHTML = ""
+                    // snp_outer.appendChild(inspector)
+                    // inspector.appendChild(widget)
+                    // const { from, to } = mark.find()
+                    // cell.code_mirror.setSelection(from, to)
                 }
                 ev.stopPropagation();
             });
+            hover_region.addEventListener("mouseleave", ev => {
+                if (snp_state.canvas_selection !== undefined && equal_by_json(shape_selection_key(hover_region), snp_state.canvas_selection)) {
+                    return;
+                }
+                const drawable = hover_region.querySelector("[stroke-width]");
+                if (!drawable) {
+                    return;
+                }
+                drawable.setAttribute("stroke-width", drawable.dataset.origStrokeWidth || "0");
+            });
+            hover_region.addEventListener("mouseenter", ev => {
+                if (snp_state.canvas_selection !== undefined && equal_by_json(shape_selection_key(hover_region), snp_state.canvas_selection)) {
+                    return;
+                }
+                hover_region.querySelector("[stroke-width]")?.setAttribute("stroke-width", "2.0");
+            });
         }
     });
+    // snp_state.hover_regions_svg().querySelectorAll('[data-pos]').forEach(hover_region => {
+    //   const [lineno, col_offset, end_lineno, end_col_offset] = JSON.parse(hover_region.dataset.pos)
+    //   const [shape_start_pos, shape_end_pos] = [
+    //     { line: lineno - 1 - snp_state.provenance_is_off_by_n_lines, ch: col_offset },
+    //     { line: end_lineno - 1 - snp_state.provenance_is_off_by_n_lines, ch: end_col_offset }
+    //   ]
+    //   // console.log("shape_loc", [shape_start_pos, shape_end_pos])
+    //   const { widget, mark } = loced_widgets.find(({ start_pos, end_pos }) => equal_by_json([start_pos, end_pos], [shape_start_pos, shape_end_pos])) || { widget: undefined, mark: undefined }
+    //   if (widget) {
+    //     hover_region.addEventListener("click", ev => {
+    //       if (selected_shapes(snp_state).includes(hover_region)) {
+    //         deselect_all(snp_state)
+    //       } else {
+    //         deselect_all(snp_state)
+    //         select(snp_state, shape_selection_key(hover_region))
+    //         inspector.innerHTML = ""
+    //         snp_outer.appendChild(inspector)
+    //         inspector.appendChild(widget)
+    //         const { from, to } = mark.find()
+    //         cell.code_mirror.setSelection(from, to)
+    //       }
+    //       ev.stopPropagation()
+    //     })
+    //   }
+    // })
     // snp_state.hover_regions_svg().querySelectorAll('[data-add-hint]:not([data-loc])').forEach(hover_region => {
     //   let hint = document.createElement("div");
     //   hint.style.display = "inline-block";
@@ -1163,25 +1257,25 @@ function attach_widgets_to_hover_regions(snp_state, user_call_info) {
     //   });
     // });
 }
-function make_new_code_button(cm, receiver_name, method_name, method_type, snp_state) {
-    let line_count = cm.getValue().split("\n").length;
-    let mark = cm.markText({ line: line_count - 2, ch: 0 }, { line: line_count - 2, ch: 0 }, { inclusiveRight: true, inclusiveLeft: true, clearWhenEmpty: false }); // insert at end, for now...
-    let arg_defaults = arg_defaults_from_callee_type(method_type);
-    let [required_positional_arg, required_keyword_args] = arg_defaults.filter(arg => arg.kind === "ARG_POS" || arg.kind === "ARG_NAMED").partition(arg => arg.kind === "ARG_POS");
-    let required_positional_arg_codes = required_positional_arg.map(arg => arg.code);
-    let required_keyword_arg_codes = required_keyword_args.map(arg => `${arg.name}=${arg.code}`);
-    let new_code = `${receiver_name}.${method_name}(${required_positional_arg_codes.concat(required_keyword_arg_codes).join(",")})\n`;
-    // let widget = make_call_widget(method_type, [], [], `${shortest_name}.${method.method_name}`, cm, mark, snp_state)
-    // inspector_html += `<div>${method.receiver_names[0]}.${str}</div>`
-    let new_code_button = make_el("div", {}, {}, {
-        click: ev => {
-            const { from, to } = mark.find();
-            // console.log(code)
-            cm.replaceRange(new_code, from, to);
-            select_lineno_after_execute = from.line;
-            hard_rerun(snp_state);
-        }
-    }, [new_code]);
-    return new_code_button;
-}
+// function make_new_code_button(cm, receiver_name: string, method_name: string, method_type, snp_state) {
+//   let line_count = cm.getValue().split("\n").length;
+//   let mark = cm.markText({ line: line_count - 2, ch: 0 }, { line: line_count - 2, ch: 0 }, { inclusiveRight: true, inclusiveLeft: true, clearWhenEmpty: false }); // insert at end, for now...
+//   let arg_defaults = arg_defaults_from_callee_type(method_type);
+//   let [required_positional_arg, required_keyword_args] = arg_defaults.filter(arg => arg.kind === "ARG_POS" || arg.kind === "ARG_NAMED").partition(arg => arg.kind === "ARG_POS");
+//   let required_positional_arg_codes = required_positional_arg.map(arg => arg.code);
+//   let required_keyword_arg_codes = required_keyword_args.map(arg => `${arg.name}=${arg.code}`);
+//   let new_code = `${receiver_name}.${method_name}(${required_positional_arg_codes.concat(required_keyword_arg_codes).join(",")})\n`;
+//   // let widget = make_call_widget(method_type, [], [], `${shortest_name}.${method.method_name}`, cm, mark, snp_state)
+//   // inspector_html += `<div>${method.receiver_names[0]}.${str}</div>`
+//   let new_code_button = make_el("div", {}, {}, {
+//     click: ev => {
+//       const { from, to } = mark.find();
+//       // console.log(code)
+//       cm.replaceRange(new_code, from, to);
+//       select_lineno_after_execute = from.line;
+//       hard_rerun(snp_state);
+//     }
+//   }, [new_code]);
+//   return new_code_button;
+// }
 //# sourceMappingURL=snp.js.map

@@ -140,19 +140,17 @@ def flatten_regions2(objid_methods_geom_children):
     obj_id, methods, geom, children = objid_methods_geom_children
     return [(obj_id, geom)] + flatten([flatten_regions2(child) for child in children])
 
-# Return list of (code to access artist on which to place the method UI, method name on the root artist, number of times method could be called)
+# Return list of (descendants that should also expose this method, method name on the root artist, number of times method could be called)
 def method_associations(artist):
     match artist:
         case mpl.axes.Axes():
             return [
-               (".title",       "set_title",  1),
-               (".xaxis",       "set_xlabel", 1),
-               (".xaxis.label", "set_xlabel", 1),
-               (".yaxis",       "set_ylabel", 1),
-               (".yaxis.label", "set_ylabel", 1),
-               ("",             "bar",        float("inf")),
-               ("",             "barh",       float("inf")),
-               ("",             "plot",       float("inf")),
+               ([".title"],                 "set_title",  1),
+               ([".xaxis", ".xaxis.label"], "set_xlabel", 1),
+               ([".yaxis", ".yaxis.label"], "set_ylabel", 1),
+               ([],                         "bar",        float("inf")),
+               ([],                         "barh",       float("inf")),
+               ([],                         "plot",       float("inf")),
             ]
         # case mpl.axis.Axis():
         #     return [(".label", "set_label_text", 1)]
@@ -234,19 +232,19 @@ def regions2(artist):
     my_region = (artist, [], my_geom, child_regions)
 
     # mutates the array on the appropriate descendant
-    def put_method_on_child(method, target, region, max_search_depth):
-        artist, artist_methods, geom, child_regions = region
+    # def put_method_on_child(method, target, region, max_search_depth):
+    #     artist, artist_methods, geom, child_regions = region
 
-        if artist == target:
-            artist_methods.append(method)
-        elif max_search_depth > 0:
-            for child_region in child_regions:
-                put_method_on_child(method, target, child_region, max_search_depth - 1)
+    #     if artist == target:
+    #         artist_methods.append(method)
+    #     elif max_search_depth > 0:
+    #         for child_region in child_regions:
+    #             put_method_on_child(method, target, child_region, max_search_depth - 1)
 
-    for code_to_access_target, my_method_name, max_calls in method_associations(artist):
-        target = eval("artist" + code_to_access_target)
-        max_search_depth = len(code_to_access_target.split(".")) + 1
-        put_method_on_child((artist, my_method_name), target, my_region, max_search_depth)
+    # for code_to_access_target, my_method_name, max_calls in method_associations(artist):
+    #     target = eval("artist" + code_to_access_target)
+    #     max_search_depth = len(code_to_access_target.split(".")) + 1
+    #     put_method_on_child((artist, my_method_name), target, my_region, max_search_depth)
 
 
     # # mutates the array on the appropriate descendant
@@ -405,7 +403,8 @@ def region2_to_svg_g(artist_methods_geom_children, object_names, type_graph):
     artist, methods, geom, children = artist_methods_geom_children
     geom_svg = geom.svg()
     geom_svg = re.sub(r'fill="[^"]*"', 'fill="transparent"', geom_svg) # can't be "none", otherwise no mouse events are triggered inside the region
-    geom_svg = re.sub(r'stroke-width="[^"]*"', 'stroke-width="0.25"', geom_svg)
+    # geom_svg = re.sub(r'stroke-width="[^"]*"', 'stroke-width="0.25"', geom_svg)
+    geom_svg = re.sub(r'stroke-width="[^"]*"', 'stroke-width="0.0"', geom_svg)
     # geom_svg = re.sub(r'\A(<\w+)', f'\\1 data-object="{str(artist)}"', geom_svg)
     child_svgs_str = "\n".join([region2_to_svg_g(child, object_names, type_graph) for child in children])
     # if hasattr(artist, "_snp_names"):
@@ -457,23 +456,56 @@ def region2_to_svg_g(artist_methods_geom_children, object_names, type_graph):
 #     {child_svgs_str}
 #     </g>"""
 
-def object_names(locals, user_names=None):
-    if user_names is None:
-        user_names = set(locals.keys())
-    out = {}
-    def add(obj, name):
+# Mutates out
+def _object_names_deep(out, obj, name, max_depth):
+    if max_depth <= 0:
+        return
+
+    if isinstance(obj, list):
+        for i, item in enumerate(obj):
+            _object_names_deep(out, item, f'{name}[{str(i)}]', max_depth)
+    elif isinstance(obj, mpl.artist.Artist):
+        # children = obj.get_children()
+        # print(name)
         key = id(obj)
         _obj, names = out.get(key, (obj, set()))
         out[key] = (_obj, names.union({name}))
 
+        if max_depth <= 1:
+            return
+
+        for prop_name in dir(obj):
+            if prop_name not in trivial_names:
+                prop = getattr(obj, prop_name)
+                if not callable(prop):
+                    _object_names_deep(out, prop, f'{name}.{prop_name}', max_depth-1)
+
+def object_names(locals, user_names=None, max_depth=4):
+    if user_names is None:
+        user_names = set(locals.keys())
+    out = {}
+
     with mpl._api.deprecation.suppress_matplotlib_deprecation_warning():
         for name, value in [(name, value) for name, value in locals.items() if name in user_names and name not in trivial_names and not callable(value)]:
-            # Only depth 1 for now
-            for prop_name in [prop_name for prop_name in dir(value) if prop_name not in trivial_names and not callable(getattr(value, prop_name))]:
-                add(getattr(value, prop_name), f'{name}.{prop_name}')
-            add(value, name)
+            _object_names_deep(out, value, f'{name}', max_depth)
+
+        # if isinstance(value, list):
+        #     for i, item in enumerate(value):
+        #         _object_names_deep(out, item, f'{name}[{str(i)}]', max_depth)
+        # elif isinstance(value, mpl.artist.Artist):
+        #     _object_names_deep(out, value, f'{name}', max_depth)
+
+        # add(value, name)
+        # for prop_name in [prop_name for prop_name in dir(value) if prop_name not in trivial_names and not callable(getattr(value, prop_name))]:
+        #     # Depth 1:
+        #     value2 = getattr(value, prop_name)
+        #     add(value2, f'{name}.{prop_name}')
+        #     # Depth 2:
+        #     for prop_name2 in [prop_name2 for prop_name2 in dir(value2) if prop_name2 not in trivial_names and not callable(getattr(value2, prop_name))]:
+        #         add(getattr(value2, prop_name2), f'{name}.{prop_name}.{prop_name2}')
 
     return out
+
 
 class SNP():
     def __init__(self, figure, locals, cell_lineno, provenance_is_off_by_n_lines, notebook_code_through_cell, user_names=None):
@@ -498,7 +530,7 @@ class SNP():
                 if name_type is not None:
                     self.user_typed_locals[name] = name_type
 
-        print(self.user_typed_locals)
+        # print(self.user_typed_locals)
 
         # Gather all the type information for function calls in the notebook
         # print(json.dumps(tree.serialize()))
@@ -560,7 +592,7 @@ class SNP():
         return {
             "cell_lineno": self.cell_lineno,
             "provenance_is_off_by_n_lines": self.provenance_is_off_by_n_lines,
-            "user_call_info": self.user_call_info,
+            # "user_call_info": self.user_call_info,
         }
 
     def _repr_html_(self):
@@ -568,30 +600,38 @@ class SNP():
         base64_image = base64.b64encode(self._repr_png_()).decode('utf-8')
         data_url = f'data:image/png;base64,{base64_image}'
 
-        sidebar_stuff = []
+        selectable_artists = []
 
         # data_methods = json.dumps([{"receiver_id": id(receiver), "receiver_names": list(object_names.get(id(receiver), (None, {}))[1]), "method_name": method_name, "method_type": method_type_json(receiver, method_name, type_graph)} for receiver, method_name in methods])
 
+        methods = []
+        calls   = []
+
         # Find method calls on each of the named objects.
         for obj_id, (obj, names) in self.object_names.items():
-            methods = []
-            for _, method_name, max_calls in method_associations(obj):
-                methods.append(
-                    {
-                        "name":      method_name,
-                        "type":      method_type_json(obj, method_name, self.type_graph),
-                        "max_calls": max_calls,
-                    }
-                )
+            for children_paths, method_name, max_calls in method_associations(obj):
+                show_on = [obj_id]
+                for code_to_descendent in children_paths:
+                    show_on.append(id(eval("obj" + code_to_descendent))) # This can't be in a comprehension because eval() can't find "obj" when it is
 
-            calls = []
+                methods.append({
+                    "name":      method_name,
+                    "receiver":  obj_id,
+                    "show_on":   show_on,
+                    "type":      method_type_json(obj, method_name, self.type_graph),
+                    "max_calls": max_calls,
+                })
 
             try:
-                method_call_positions = [position for _, position in obj._snp_method_call_locs]
+                func_code_and_nums    = [func_code_and_num for func_code_and_num, position in obj._snp_method_call_locs]
+                method_call_positions = [position          for func_code_and_num, position in obj._snp_method_call_locs]
             except:
+                func_code_and_nums    = []
                 method_call_positions = []
 
             # n^2!
+            #
+            # Correlate to the call info from the type checker, which only know about code positions, not object names or ids
             if len(method_call_positions) > 0:
                 for call_info in self.user_call_info:
                     call_pos_dict = call_info["call"]["pos"]
@@ -604,17 +644,42 @@ class SNP():
                     )
 
                     if call_pos in method_call_positions:
-                        calls.append(call_info)
+                        i = method_call_positions.index(call_pos)
+                        func_code_and_num = func_code_and_nums[i]
+                        method_name = call_info["callee"]["name"].split(" ")[0] # "set_title of Axes" => "set_title"
+                        calls.append(call_info | { "name": method_name, "receiver": id(obj), "func_code_and_num": func_code_and_num })
                     # else:
                     #     print(call_loc, method_call_positions)
 
-            if len(calls) > 0 or len(methods) > 0:
-                sidebar_stuff.append({
-                    "names": list(names),
-                    "id": obj_id,
-                    "methods": methods,
-                    "calls": calls,
-                })
+            # if len(calls) > 0 or len(methods) > 0:
+            selectable_artists.append({
+                "id":                    obj_id,
+                "names":                 list(names),
+                # "method_call_positions": method_call_positions,
+            })
+
+        # Add show_on to each call
+        for call in calls:
+            # Apparently, this is how you find the first elem of a list by predicate in Python.
+            method = next((m for m in methods if (m["name"], m["receiver"]) == (call["name"], call["receiver"])), None)
+            if method is not None:
+                call["show_on"]   = method["show_on"]
+                call["max_calls"] = method["max_calls"]
+            else:
+                call["show_on"]   = [call["receiver"]]
+                call["max_calls"] = float("inf")
+
+        # Now, trim down to only objects that have something worth showing.
+        all_show_on     = flatten([method["show_on"] for method in methods])
+        all_show_on_set = set(all_show_on)
+
+        selectable_artists = [artist for artist in selectable_artists if artist["id"] in all_show_on_set]
+
+        sidebar_stuff = {
+            "selectable_artists": selectable_artists,
+            "methods":            methods,
+            "calls":              calls,
+        }
 
         return f"""
             <div class="snp_outer" style="position:relative;">
@@ -747,6 +812,7 @@ class ProvenanceTagger(ast.NodeTransformer):
         super().__init__()
 
     def visit_Call(self, node):
+        node = self.generic_visit(node)
 
         # When the form is receiver.attribute(...), log that there is call on this receiver.
         match node:
@@ -774,12 +840,17 @@ class ProvenanceTagger(ast.NodeTransformer):
             case _:
                 return node
 
+# We need a new ProvenanceTagger each time, to reset call_nums
+class RootProvenanceTagger():
+    def visit(self, node):
+        return ProvenanceTagger().visit(node)
+
 # print(astor.dump_tree(ast.parse(tree)))
 
 # print(ast.unparse(ProvenanceTagger().visit(ast.parse(code))))
 # print(ast.unparse(ProvenanceTagger().visit(ast.parse(IPython.get_ipython().history_manager.input_hist_raw[-4]))))
 
-IPython.get_ipython().kernel.shell.ast_transformers = [ProvenanceTagger()]
+IPython.get_ipython().kernel.shell.ast_transformers = [RootProvenanceTagger()]
 
 
 ### Type Inference ##############################
@@ -979,8 +1050,8 @@ def do_inference(code):
     fine_grained_build_manager.flush_cache()
     fscache.flush()
 
-    for error in mypy_result.errors:
-        print(error)
+    # for error in mypy_result.errors:
+    #     print(error)
 
     return mypy_result
 

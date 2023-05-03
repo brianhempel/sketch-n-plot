@@ -27,6 +27,7 @@ declare function selected_shapes(snp_state: {
 }): any[];
 declare function select(snp_state: any, key: any): void;
 declare function shape_selection_key(shape: any): SelectedItem;
+declare function selected_sidebar_item(snp_state: any, key: SelectedItem): any;
 declare function deselect_all(snp_state: any): void;
 declare function relativeTopLeft(el: any, container: any): number[];
 declare function relativeBoundingRect(el: any, container: any): DOMRect;
@@ -72,11 +73,24 @@ interface Arg {
 declare function arg_defaults_from_callee_type(callee: any): Arg[];
 declare function hard_rerun(snp_state: any): void;
 declare function make_call_widget(callee: any, given_positional_args: Arg[], given_keyword_args: Arg[], callee_code: string, code_mirror: any, mark: any, snp_state: any): HTMLDivElement;
-declare function loced_widgets_from_code(cell_items: any, cell_lineno: any, cm: any, snp_state: any): any[];
+declare function loced_widget_from_code(call_info: any, cell_lineno: any, cm: any, snp_state: any): {
+    start_pos: {
+        line: number;
+        ch: any;
+    };
+    end_pos: {
+        line: number;
+        ch: any;
+    };
+    mark: any;
+    method_name: any;
+    call_info: any;
+    widget: HTMLDivElement;
+};
+declare function loced_widgets_from_code(cell_items: any, cell_lineno: any, cm: any, snp_state: any): any;
 declare function replace_hover_regions(snp_state: any, new_svg_str: any): void;
 declare function redraw_cell(snp_state: any): void;
 declare function attach_snp(snp_outer: any, cell_lineno: any, provenance_is_off_by_n_lines: any, user_call_info: any, sidebar_stuff: any): void;
 declare function shortest_qualified_name(names: any): any;
-declare function build_sidebar(snp_state: any, sidebar_stuff: any): void;
-declare function attach_widgets_to_hover_regions(snp_state: any, user_call_info: any): void;
-declare function make_new_code_button(cm: any, receiver_name: string, method_name: string, method_type: any, snp_state: any): any;
+declare function build_sidebar(snp_state: any): void;
+declare function attach_events_to_hover_regions(snp_state: any): void;
