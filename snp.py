@@ -1035,7 +1035,7 @@ def do_inference(code):
         options.fine_grained_incremental = True
         options.use_fine_grained_cache = True
         options.local_partial_types = True # https://github.com/python/mypy/issues/4492
-        options.mypy_path = ["python-type-stubs-main"]
+        options.mypy_path = ["python-type-stubs-main/stubs"]
         options.follow_imports = "silent"
         options.follow_imports_for_stubs = True
         options.export_types = True
