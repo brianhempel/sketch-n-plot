@@ -77,15 +77,15 @@ define([
   // returns [cell_lineno, notebook_code_through_cell]
   //
   // Finds the cell by the cell_code. If there are duplicate cells, goes up through the duplicate.
+  function is_not_magic(code) {
+    return !code.startsWith("%%");
+  }
+
   function get_notebook_code_through(cell_code) {
     const code_cells = Jupyter.notebook.get_cells().filter(cell => cell.cell_type === "code")
 
     const code_cells_through_cell = code_cells.slice(0, 1 + code_cells.findLastIndex(cell => cell.get_text() === cell_code));
     const code_cells_before_cell  = code_cells_through_cell.slice(0,-1)
-
-    function is_not_magic(code) {
-      return !code.startsWith("%%");
-    }
 
     const notebook_code_before_cell =
       code_cells_before_cell.
@@ -109,11 +109,13 @@ define([
     IPython.notebook.events.on("execution_request.Kernel", function (ev, {kernel, content}) {
       const cell_code = content.code;
 
-      const [cell_lineno, notebook_code_through_cell] = get_notebook_code_through(cell_code)
+      if (is_not_magic(cell_code)) {
+        const [cell_lineno, notebook_code_through_cell] = get_notebook_code_through(cell_code)
 
-      // console.log({cell_lineno: cell_lineno})
+        // console.log({cell_lineno: cell_lineno})
 
-      content.code = `provenance_is_off_by_n_lines = 4\ncell_lineno = ${cell_lineno}\ncell_code = ${JSON.stringify(cell_code)}\nnotebook_code_through_cell = ${JSON.stringify(notebook_code_through_cell)}\n${content.code}`
+        content.code = `provenance_is_off_by_n_lines = 4\ncell_lineno = ${cell_lineno}\ncell_code = ${JSON.stringify(cell_code)}\nnotebook_code_through_cell = ${JSON.stringify(notebook_code_through_cell)}\n${content.code}`
+      }
 
       // console.log("execution_request.Kernel", content);
     });
